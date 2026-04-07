@@ -40,7 +40,7 @@ from PyQt6.QtGui import (
 _ODE_ICON_B64  = "/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAuABwDASIAAhEBAxEB/8QAHAAAAQQDAQAAAAAAAAAAAAAACAIFBgcAAQME/8QALRAAAgEDAwEHAwUBAAAAAAAAAQIDBAURBhIhAAcTFDFBUWEIIjIjJFJxgfD/xAAWAQEBAQAAAAAAAAAAAAAAAAADBQT/xAAjEQACAgIBAwUBAAAAAAAAAAABAgADBBEhBTFBEiKBkaHR/9oADAMBAAIRAxEAPwAQNuF9uuwU7R88dajRpJAijk8Y9+rf7Iuy+tuFVHqO9U80Nko+7m3NAdlUd4HdgkEc8A8HzGRjJAXWipSzdpoRGc6EjFn7K9YXTTkV9pqAeFkSRwrEiQIq7lYL5nvCGVQMklecAqTB3UoxVhtI8x7Ho99YiSx2KCCYFqipVXq0kCmJiucKGZmJ2gKoCnnAJ5yQEWt44oNY3iBIVhWKtmQRqoUIA5GABwAPb06x4OY97MGEW+kVjiSf6f8AStt1Tr+moruWNOrRv3KgjxBM0abGYcqpD5JGDweQcHohtD2rXesu0ulqWprbS0lJRK1KhMkVPboc7I0iEa43r+YTKhtrcrjiq/pUt1PUVt9qh38ddT0TvTTRvgRkQzSZI9TvijP9KRjnIJXR9yo9HWOqrl2Grlwqoyr977ARllCl0UZ2k4OCf8r4qVPTkWWgEAADf2fyQ+o9RONlY+Ovdtn+Ty6j0/eZKLVdonqEqWt8sMoqXp1jEqeGhcgA7iAGVsKD7/dxggdqalmpdR3KmqapqqeKrlSWdiSZWDkFiTycnnnou9X6weGnr71dbzPBTxk+NrMDgumBTxou0SSuqkBc8AMSVVWaMRtSXCK6aguFygp3p4qqpkmSKSQSMgZiQrMFUMRnk7Rk+g6idOId3sRdKda+Jdv4VVY+7zLN+nO+1FqvN2pKeFZHqaFguc+Z/T9PiVjkEfiP8luodd2i0LU1Nw1C9Zcni2JTUYEjKcOVy2e7QBwFIB3LvyFbnA+SHAAAwMc/P/Y6SQxVnDH1Oc+o+OnfDFjlmJ0eSPyGHCgH0jY435jtqrU101FJEa+b9vT7hBTISI492NxA/kcLk+Z2geSrhl9v69sdKIXbgDj06wLkZ61qAqhR2hkknZn/2Q=="
 _PLUS_ICON_B64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAqACADASIAAhEBAxEB/8QAGgAAAgMBAQAAAAAAAAAAAAAABAUBBgcDCP/EACkQAAEDAwMDBAIDAAAAAAAAAAECAwQABREGIVESMWEHEyJBMnFSgZH/xAAYAQADAQEAAAAAAAAAAAAAAAABAgMABP/EABoRAQEBAQEBAQAAAAAAAAAAAAEAESECAxL/2gAMAwEAAhEDEQA/APIjSvd2V9d8UXEhPTJSGGkdZP8AgHJoO3RpMqWhmKgqcUf6A5Pin8uYiCwqFCKVKIw88B+R4HipPl3lU9mdgZseRGfMdxvpUj6+scjxQrh79Z34Ham0aU3PjpgzVBCgMMv/AMfB8UmmxJkWSph9PQoH67Ec54ofnJz6CTeQtu2Mrt8MkuHZ97GCo8DxWiej/pPrW8X3S+pUadblafcuLDzrrklgpWyl4BzLal9RGEq2xvwazuM8i9NhpwpRcEj4qOweA+j5onRNxYsOurHdp6HQxbrnHkvpQnK+lt1KlAA9zgGqlzte/WD0m1rZ77qjUq9OtxdPt3GQ8063JY6UsqeIbw2lfUBhSdsbcCs/gSGZ8dFum59wfFh3GSnwfFd9a3Bm/a5vl2gIdLFxuciSwlacL6XHVKTkc4IoKW8ixoLbZSu4KHyUNwyOP3QceMTTpIUqKVBQJBByCPqn0d9F6bDTpSi4pGEqOweHB81X6gKKVBSSQQcgg7isWe1lW+3ZWy0ghyeR8yN/ZHjzSOQ42olRIWSc5Pc1xaUpT3Uokk7kk96hf5j90uazjhf/2Q=="
 
-_OCR_DEBUG_ENABLED = False
+_OCR_DEBUG_ENABLED = True
 
 def _app_base_dir():
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -74,6 +74,100 @@ def _app_icon():
 
 
 _OCR_DEBUG_DIR = _user_data_dir()
+UI_SCALE_PRESETS = [
+    ("작게", 100),
+    ("보통", 125),
+    ("크게", 150),
+]
+UI_SCALE_FONT_FACTORS = {
+    100: 1.00,
+    125: 1.15,
+    150: 1.30,
+}
+
+def _clamp_ui_scale(value):
+    try:
+        value = int(value)
+    except Exception:
+        value = 100
+    preset_values = [v for _, v in UI_SCALE_PRESETS]
+    return min(preset_values, key=lambda preset: abs(preset - value))
+
+def _ui_scale_factor(state_or_value):
+    if isinstance(state_or_value, dict):
+        value = state_or_value.get("ui_scale", 100)
+    else:
+        value = state_or_value
+    return _clamp_ui_scale(value) / 100.0
+
+def _scaled(value, scale):
+    return max(1, int(round(value * scale)))
+
+def _scaled_font_size(base_size, scale):
+    if not base_size or base_size <= 0:
+        return base_size
+    preset = _clamp_ui_scale(int(round(scale * 100)))
+    target = float(base_size) * UI_SCALE_FONT_FACTORS.get(preset, 1.0)
+    return max(1.0, round(target * 2) / 2.0)
+
+def _ui_scale_label(value):
+    value = _clamp_ui_scale(value)
+    for label, preset in UI_SCALE_PRESETS:
+        if preset == value:
+            return label
+    return "작게"
+
+def _apply_layout_scale(layout, scale):
+    if layout is None:
+        return
+    base_spacing = layout.property("_base_spacing")
+    if base_spacing is None:
+        base_spacing = layout.spacing()
+        layout.setProperty("_base_spacing", base_spacing)
+    if isinstance(base_spacing, int) and base_spacing >= 0:
+        layout.setSpacing(_scaled(base_spacing, scale))
+
+    base_margins = layout.property("_base_margins")
+    if base_margins is None:
+        base_margins = list(layout.getContentsMargins())
+        layout.setProperty("_base_margins", base_margins)
+    if base_margins:
+        layout.setContentsMargins(*[_scaled(v, scale) for v in base_margins])
+
+def _apply_widget_scale(root, scale, *, scale_width=True, width_scale=None):
+    eff_width_scale = width_scale if width_scale is not None else scale
+    widgets = [root] + root.findChildren(QWidget)
+    for widget in widgets:
+        font = widget.font()
+        if font is not None:
+            base_font = widget.property("_base_font_size")
+            if base_font is None:
+                base_font = font.pointSizeF()
+                if base_font > 0:
+                    widget.setProperty("_base_font_size", base_font)
+            if base_font:
+                font.setPointSizeF(_scaled_font_size(float(base_font), scale))
+                widget.setFont(font)
+
+        max_w = widget.maximumWidth()
+        min_w = widget.minimumWidth()
+        if scale_width and 0 < max_w < 16777215 and max_w == min_w:
+            base_w = widget.property("_base_fixed_w")
+            if base_w is None:
+                base_w = max_w
+                widget.setProperty("_base_fixed_w", base_w)
+            widget.setFixedWidth(_scaled(int(base_w), eff_width_scale))
+
+        max_h = widget.maximumHeight()
+        min_h = widget.minimumHeight()
+        if 0 < max_h < 16777215 and max_h == min_h:
+            base_h = widget.property("_base_fixed_h")
+            if base_h is None:
+                base_h = max_h
+                widget.setProperty("_base_fixed_h", base_h)
+            widget.setFixedHeight(_scaled(int(base_h), scale))
+
+        _apply_layout_scale(widget.layout(), scale)
 
 def _ocr_log(message):
     if _OCR_DEBUG_ENABLED:
@@ -91,6 +185,29 @@ def _ocr_debug_save(image, filename):
     path = os.path.join(_OCR_DEBUG_DIR, filename)
     image.save(path)
     _ocr_log(f"저장: {path}")
+
+def _ocr_debug_annotate(topbar_img, ode_hit=None, plus_hit=None, roi_rect=None):
+    if topbar_img is None:
+        return None
+    from PIL import ImageDraw as _ImageDraw
+
+    annotated = topbar_img.copy()
+    draw = _ImageDraw.Draw(annotated)
+
+    def _draw_rect(hit, color):
+        if hit is None:
+            return
+        x, y, w, h, _ = hit
+        draw.rectangle((x, y, x + w, y + h), outline=color, width=3)
+
+    _draw_rect(ode_hit, (255, 64, 64))
+    _draw_rect(plus_hit, (255, 64, 64))
+
+    if roi_rect is not None:
+        x1, y1, x2, y2 = roi_rect
+        draw.rectangle((x1, y1, x2, y2), outline=(255, 180, 0), width=2)
+
+    return annotated
 
 def _find_aion2_window_info():
     """Aion2.exe의 PID/창/캐릭터명을 탐색해 dict로 반환."""
@@ -273,6 +390,16 @@ def _ocr_preprocess(img):
     except Exception:
         return None
 
+def _ocr_cleanup_text(text):
+    """OCR 결과에서 형식에 맞지 않는 잡문자를 정리한다."""
+    if not text:
+        return ""
+    text = re.sub(r"\s+", "", text)
+    text = re.sub(r"[^0-9(),+/]", "", text)
+    # 정상 형식은 "(+123)"이므로, '(' 바로 뒤에 끼어든 숫자는 제거한다.
+    text = re.sub(r"\(\d+\+", "(+", text)
+    return text
+
 def _ocr_parse(text):
     """OCR 결과 문자열 → (base, extra, max) 또는 None."""
     m = re.search(r'(\d+)\(\+?([\d,]+)\)/(\d+)', text)
@@ -319,7 +446,7 @@ def capture_ode_from_game(hwnd):
 
         topbar = _ocr_capture_topbar(hwnd)
         _ocr_log(f"탑바 캡처: {topbar.size}")
-        # _ocr_debug_save(topbar, "ocr_debug_topbar.png")
+        _ocr_debug_save(topbar, "ocr_debug_topbar.png")
 
         ode_hit  = _ocr_find_icon(topbar, tpl_ode)
         plus_hit = _ocr_find_icon(topbar, tpl_plus)
@@ -342,18 +469,24 @@ def capture_ode_from_game(hwnd):
             _ocr_log("ROI 폭 0 이하 → 종료")
             return None
 
+        annotated = _ocr_debug_annotate(topbar, ode_hit, plus_hit, (x1, y1, x2, y2))
+        _ocr_debug_save(annotated, "ocr_debug_detected.png")
+
         roi = topbar.crop((x1, y1, x2, y2))
-        # _ocr_debug_save(roi, "ocr_debug_roi.png")
+        _ocr_debug_save(roi, "ocr_debug_roi.png")
 
         processed = _ocr_preprocess(roi)
         if processed is None:
             _ocr_log("전처리 실패 → 종료")
             return None
-        # _ocr_debug_save(processed, "ocr_debug_processed.png")
+        _ocr_debug_save(processed, "ocr_debug_processed.png")
 
-        config = r"--psm 6 -c tessedit_char_whitelist=0123456789()+/,"
-        text   = pytesseract.image_to_string(processed, config=config, lang="eng").strip()
-        _ocr_log(f"결과 텍스트: '{text}'")
+        config = r"--psm 7 -c tessedit_char_whitelist=0123456789()+/,"
+        raw_text = pytesseract.image_to_string(processed, config=config, lang="eng").strip()
+        text = _ocr_cleanup_text(raw_text)
+        _ocr_log(f"결과 텍스트: '{raw_text}'")
+        if text != raw_text:
+            _ocr_log(f"정리 텍스트: '{text}'")
 
         result = _ocr_parse(text)
         _ocr_log(f"파싱 결과: {result}")
@@ -568,6 +701,7 @@ def default_state():
         "hidden_tasks":   [],
         "daily_reset":    "", "weekly_reset": "", "corridor_reset": "",
         "opacity":        100,
+        "ui_scale":       100,
         "hotkey":         "Ctrl+H",
         "sync_hotkey":    "Ctrl+R",
         "overlay_pos":    [None, None],
@@ -587,6 +721,7 @@ def load_state():
             data.setdefault("kina", {})
             data.setdefault("ode", {})
             data.setdefault("sync_hotkey", "Ctrl+R")
+            data.setdefault("ui_scale", 100)
 
             # ── 기본 컨텐츠 주입 (없는 것만 추가, 순서 보존) ──
             DEFAULT_TASKS = [
@@ -984,10 +1119,32 @@ class _SummaryView(QWidget):
         self._active_char= active_char
         self._hov_row    = None
         self._hov_col    = None
+        self._base_metrics = {
+            "HDR1_H": self.HDR1_H,
+            "HDR2_H": self.HDR2_H,
+            "ROW_H": self.ROW_H,
+            "SRV_W": self.SRV_W,
+            "CHAR_W": self.CHAR_W,
+            "TASK1_W": self.TASK1_W,
+            "TASKN_W": self.TASKN_W,
+            "PAD": self.PAD,
+            "DOT": self.DOT,
+        }
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet("background:transparent;")
         self.setMouseTracking(True)
+        self._apply_scale_metrics()
         self._recalc()
+
+    def _apply_scale_metrics(self):
+        scale = _ui_scale_factor(self._state)
+        for name, base in self._base_metrics.items():
+            setattr(self, name, _scaled(base, scale))
+
+    def _font(self, family, size, weight=QFont.Weight.Normal):
+        font = QFont(family, weight=weight)
+        font.setPointSizeF(_scaled_font_size(size, _ui_scale_factor(self._state)))
+        return font
 
     def _tasks(self):
         excl = {"weekly_akmong"}
@@ -1024,6 +1181,7 @@ class _SummaryView(QWidget):
 
     def refresh(self, state, active_char):
         self._state = state; self._active_char = active_char
+        self._apply_scale_metrics()
         self._recalc(); self.update()
         
         
@@ -1049,11 +1207,11 @@ class _SummaryView(QWidget):
         for si, (label, col, cd) in enumerate(TIMERS):
             sy = si * SLOT_H
             # 레이블
-            p.setFont(QFont("Noto Sans KR", 7, QFont.Weight.Bold))
+            p.setFont(self._font("Noto Sans KR", 7, QFont.Weight.Bold))
             p.setPen(QColor(col))
             p.drawText(self.PAD, sy, 24, SLOT_H, Qt.AlignmentFlag.AlignVCenter, label)
             # 카운트다운
-            p.setFont(QFont("Rajdhani", 8))
+            p.setFont(self._font("Rajdhani", 8))
             p.setPen(QColor(255, 255, 255, 160))
             p.drawText(self.PAD + 26, sy, TIMER_W - self.PAD - 26, SLOT_H,
                        Qt.AlignmentFlag.AlignVCenter, cd)
@@ -1078,7 +1236,7 @@ class _SummaryView(QWidget):
             gx0 = txs[g_tasks[0][0]]
             gx1 = txs[g_tasks[-1][0]] + self._task_w(g_tasks[-1][1])
             p.setPen(QColor(gcol))
-            p.setFont(QFont("Noto Sans KR", 8, QFont.Weight.Bold))
+            p.setFont(self._font("Noto Sans KR", 8, QFont.Weight.Bold))
             p.drawText(gx0, 0, gx1 - gx0, self.HDR1_H, Qt.AlignmentFlag.AlignCenter, glabel.upper())
             p.setPen(QPen(QColor(gcol), 1))
             p.drawLine(gx0, self.HDR1_H - 1, gx1, self.HDR1_H - 1)
@@ -1103,13 +1261,7 @@ class _SummaryView(QWidget):
                 )
 
             p.setPen(QColor(255, 255, 255, 200) if is_hov else QColor(col))
-            p.setFont(
-                QFont(
-                    "Noto Sans KR",
-                    8,
-                    QFont.Weight.Bold if is_hov else QFont.Weight.Normal
-                )
-            )
+            p.setFont(self._font("Noto Sans KR", 8, QFont.Weight.Bold if is_hov else QFont.Weight.Normal))
 
             p.drawText(
                 txs[i], hdr2_y, cw, self.HDR2_H,
@@ -1190,7 +1342,7 @@ class _SummaryView(QWidget):
                 BAR_X   = self.SRV_W + self.PAD
                 BAR_W   = self.CHAR_W - self.PAD * 2
 
-                p.setFont(QFont("Noto Sans KR", 10, QFont.Weight.Bold))
+                p.setFont(self._font("Noto Sans KR", 10, QFont.Weight.Bold))
                 p.setPen(QColor(C["accent"] if is_act else "#ede6ff"))
                 p.drawText(self.SRV_W + self.PAD, y,
                            self.CHAR_W - self.PAD*2, NAME_H,
@@ -1201,7 +1353,7 @@ class _SummaryView(QWidget):
                 uly = y + NAME_H//2 + fm.ascent()//2 + 1
                 p.setPen(QPen(QColor(160,128,255,80), 1))
                 p.drawLine(self.SRV_W + self.PAD, uly, self.SRV_W + self.PAD + tw, uly)
-                p.setFont(QFont("Noto Sans KR", 8)); p.setPen(QColor(160,128,255,100))
+                p.setFont(self._font("Noto Sans KR", 8)); p.setPen(QColor(160,128,255,100))
                 p.drawText(self.SRV_W + self.PAD + tw + 2, y, 14, NAME_H,
                            Qt.AlignmentFlag.AlignVCenter, "↗")
 
@@ -1245,7 +1397,7 @@ class _SummaryView(QWidget):
                         p.setBrush(QColor(tc) if done else Qt.BrushStyle.NoBrush)
                         p.drawRoundedRect(cx, cy, ds, ds, 2, 2)
                     else:
-                        p.setFont(QFont("Rajdhani", 10))
+                        p.setFont(self._font("Rajdhani", 10))
                         p.setPen(QColor(tc if done else C["text_muted"]))
                         p.drawText(txs[i], y, cw, self.ROW_H, Qt.AlignmentFlag.AlignCenter,
                                    f"{cnt}/{_max}")
@@ -1363,6 +1515,7 @@ def _apply_rounded_mask(widget, radius=10):
 class SettingsDialog(QDialog):
     applied  = pyqtSignal(dict)
     live_opacity = pyqtSignal(int)   # emitted while dragging slider
+    live_ui_scale = pyqtSignal(int)
 
     def __init__(self, state, parent=None):
         super().__init__(parent)
@@ -1370,6 +1523,7 @@ class SettingsDialog(QDialog):
         self._rec  = False
         self._rec_target = None
         self._orig_opacity = state.get("opacity", 100)   # restore on cancel
+        self._orig_ui_scale = _clamp_ui_scale(state.get("ui_scale", 100))
 
         # ── Frameless, same dark style as overlay ──
         self.setWindowFlags(
@@ -1381,6 +1535,7 @@ class SettingsDialog(QDialog):
         self.setModal(True)
         self._drag_pos = None
         self._build()
+        self._apply_live_scale(self._orig_ui_scale)
 
     # ── Custom paint: rounded dark card (안티앨리어싱) ──
     def paintEvent(self, e):
@@ -1446,6 +1601,29 @@ class SettingsDialog(QDialog):
 
         bv.addWidget(self._divider())
 
+        scale_hdr = QHBoxLayout()
+        scale_hdr.addWidget(self._lbl("UI 크기"), 1)
+        self._scale_val = QLabel(_ui_scale_label(self.state.get("ui_scale", 100)))
+        self._scale_val.setFont(QFont("Rajdhani", 12, QFont.Weight.Bold))
+        self._scale_val.setStyleSheet(f"color:{C['gold']};background:transparent;")
+        scale_hdr.addWidget(self._scale_val); bv.addLayout(scale_hdr)
+
+        current_scale = _clamp_ui_scale(self.state.get("ui_scale", 100))
+        self._scale_buttons = {}
+        scale_row = QHBoxLayout(); scale_row.setSpacing(6)
+        for label, preset in UI_SCALE_PRESETS:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setAutoExclusive(True)
+            btn.setFixedHeight(30)
+            btn.clicked.connect(lambda checked=False, p=preset: self._on_scale_change(p))
+            self._scale_buttons[preset] = btn
+            scale_row.addWidget(btn, 1)
+        bv.addLayout(scale_row)
+        self._set_scale_buttons(current_scale)
+
+        bv.addWidget(self._divider())
+
         # hotkey 섹션
         bv.addWidget(self._sec_label("최소화 단축키"))
         hk_row = QHBoxLayout(); hk_row.setSpacing(6)
@@ -1508,6 +1686,37 @@ class SettingsDialog(QDialog):
             QPushButton:hover{{border-color:{C['border2']};color:{C['text']};}}
         """
 
+    def _scale_btn_css(self, active):
+        if active:
+            return f"""
+                QPushButton{{background:{C['gold']}22;color:{C['gold']};border:1px solid {C['gold']}88;
+                    border-radius:5px;font-family:'Noto Sans KR';font-size:11px;font-weight:500;}}
+                QPushButton:hover{{background:{C['gold']}33;border-color:{C['gold']};}}
+            """
+        return f"""
+            QPushButton{{background:{C['surface2']};color:{C['text_muted']};border:1px solid {C['border']};
+                border-radius:5px;font-family:'Noto Sans KR';font-size:11px;}}
+            QPushButton:hover{{border-color:{C['border2']};color:{C['text']};}}
+        """
+
+    def _set_scale_buttons(self, preset):
+        preset = _clamp_ui_scale(preset)
+        self._scale_val.setText(_ui_scale_label(preset))
+        for value, btn in getattr(self, "_scale_buttons", {}).items():
+            btn.blockSignals(True)
+            btn.setChecked(value == preset)
+            btn.setStyleSheet(self._scale_btn_css(value == preset))
+            btn.blockSignals(False)
+
+    def _apply_live_scale(self, preset):
+        temp_state = dict(self.state)
+        temp_state["ui_scale"] = _clamp_ui_scale(preset)
+        _apply_widget_scale(self, _ui_scale_factor(temp_state), scale_width=False)
+        self.adjustSize()
+        if self.parent():
+            pp = self.parent().geometry()
+            self.move(pp.center() - self.rect().center())
+
     def _sl_css(self):
         return f"""
             QSlider::groove:horizontal{{height:4px;background:{C['surface2']};border-radius:2px;}}
@@ -1518,6 +1727,12 @@ class SettingsDialog(QDialog):
     def _on_opacity_change(self, v):
         self._op_val.setText(f"{v}%")
         self.live_opacity.emit(v)   # live preview
+
+    def _on_scale_change(self, preset):
+        preset = _clamp_ui_scale(preset)
+        self._set_scale_buttons(preset)
+        self._apply_live_scale(preset)
+        self.live_ui_scale.emit(preset)
 
     def _start_rec(self, target):
         self._rec = True
@@ -1576,11 +1791,15 @@ class SettingsDialog(QDialog):
     def _cancel(self):
         # restore original opacity on cancel
         self.live_opacity.emit(self._orig_opacity)
+        self._set_scale_buttons(self._orig_ui_scale)
+        self._apply_live_scale(self._orig_ui_scale)
+        self.live_ui_scale.emit(self._orig_ui_scale)
         self.reject()
 
     def _apply(self):
         self.applied.emit({
             "opacity": self._op_sl.value(),
+            "ui_scale": next((value for value, btn in self._scale_buttons.items() if btn.isChecked()), self._orig_ui_scale),
             "hotkey": self._hk.text(),
             "sync_hotkey": self._sync_hk.text(),
         })
@@ -2640,6 +2859,7 @@ class _SummaryWindow(QWidget):
 
         # 창 너비 = 내용 너비에 맞춤
         self.setFixedWidth(self._sv._total_w())
+        self.snap_height()
 
 
 
@@ -2669,11 +2889,18 @@ class _SummaryWindow(QWidget):
         super().resizeEvent(e)
         _apply_rounded_mask(self, self.RADIUS)
 
-    def snap_height(self, h):
-        """메인 창 높이에 맞춰 스크롤 영역 높이를 동기화."""
-        # 전체 창 높이 = 헤더 고정 영역 + 스크롤 영역
-        self._scroll.setFixedHeight(h - self._header_h)
-        self.setFixedHeight(h)
+    def snap_height(self, _unused=None):
+        """메인 창 높이에 고정하지 않고 표 내용에 맞춰 높이를 조정한다."""
+        self._header_h = self._sv.HDR1_H + self._sv.HDR2_H
+        self.layout().setContentsMargins(0, self._header_h, 0, 0)
+
+        screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()
+        available_h = screen.availableGeometry().height() if screen else 900
+        max_body_h = max(140, available_h - self._header_h - 32)
+        body_h = min(self._sv._total_h(), max_body_h)
+
+        self._scroll.setFixedHeight(body_h)
+        self.setFixedHeight(self._header_h + body_h)
         _apply_rounded_mask(self, self.RADIUS)
 
     def refresh(self, state, active_char):
@@ -2681,6 +2908,7 @@ class _SummaryWindow(QWidget):
         self._sv.refresh(state, active_char)
         # 캐릭터/컨텐츠 변경 시 너비 재계산
         self.setFixedWidth(self._sv._total_w())
+        self.snap_height()
 
     def closeEvent(self, e): self.closed.emit(); super().closeEvent(e)
 
@@ -2712,6 +2940,10 @@ class ManagerWindow(QWidget):
             QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}}
         """)
         self._build()
+        dlg_scale = _ui_scale_factor(self.state)
+        _apply_widget_scale(self, dlg_scale, scale_width=False)
+        self.setFixedWidth(453)
+        self.setMinimumHeight(max(416, self.height()))
 
     def paintEvent(self, e):
         _paint_rounded_window(self)
@@ -3042,7 +3274,68 @@ class Overlay(QWidget):
             scr=QApplication.primaryScreen().geometry()
             self.move(scr.width()-324,20)
 
+    def _apply_ui_scale(self):
+        scale = _ui_scale_factor(self.state)
+        self.MODE_LEFT_W = _scaled(285, scale)
+        self._topbar_h = _scaled(38, scale)
+
+        _apply_widget_scale(self, scale)
+
+        if hasattr(self, "_left_widget"):
+            self._left_widget.setFixedWidth(self.MODE_LEFT_W)
+        if hasattr(self, "_bar"):
+            self._bar.setFixedSize(self.MODE_LEFT_W, self._topbar_h)
+        self.setFixedWidth(self.MODE_LEFT_W)
+
+        icon_sz = _scaled(22, scale)
+        icon_path = _resource_path("odeframe_icon.png")
+        if os.path.exists(icon_path):
+            from PyQt6.QtGui import QPixmap
+            pix = QPixmap(icon_path).scaled(
+                icon_sz, icon_sz,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            if hasattr(self, "_icon_lbl"):
+                self._icon_lbl.setPixmap(pix)
+                self._icon_lbl.setFixedSize(icon_sz, icon_sz)
+            if hasattr(self, "_mini_icon_lbl"):
+                self._mini_icon_lbl.setPixmap(pix)
+                self._mini_icon_lbl.setFixedSize(icon_sz, icon_sz)
+
+        if hasattr(self, "_mini_icon_lbl"):
+            self._mini_icon_lbl.setGeometry(_scaled(8, scale), _scaled(8, scale), icon_sz, icon_sz)
+        if hasattr(self, "_mini_char_lbl"):
+            self._mini_char_lbl.setGeometry(_scaled(36, scale), 0, _scaled(107, scale), self._topbar_h)
+        if hasattr(self, "_mini_ode_lbl"):
+            self._mini_ode_lbl.setGeometry(_scaled(143, scale), 0, _scaled(44, scale), self._topbar_h)
+
+        btn_w = _scaled(26, scale)
+        btn_h = _scaled(20, scale)
+        btn_y = _scaled(9, scale)
+        if hasattr(self, "_btn_expand"):
+            self._btn_expand.setFixedSize(btn_w, btn_h)
+            self._btn_expand.move(_scaled(189, scale), btn_y)
+        if hasattr(self, "_btn_sync_ode"):
+            self._btn_sync_ode.setFixedSize(btn_w, btn_h)
+            self._btn_sync_ode.move(_scaled(219, scale), btn_y)
+        if hasattr(self, "_btn_minimize"):
+            self._btn_minimize.setFixedSize(btn_w, btn_h)
+            self._btn_minimize.move(_scaled(249, scale), btn_y)
+
+        if getattr(self, "_summary_win", None):
+            self._summary_win.refresh(self.state, self.active_char)
+            self._summary_win.setWindowOpacity(self.state.get("opacity", 100) / 100)
+
+        if getattr(self, "_is_mini", False):
+            self.setFixedHeight(self._topbar_h)
+        else:
+            self.setMaximumHeight(16777215)
+            QTimer.singleShot(0, self._adj_height)
+
     def _apply_cfg(self):
+        self.state["ui_scale"] = _clamp_ui_scale(self.state.get("ui_scale", 100))
+        self._apply_ui_scale()
         opacity = self.state.get("opacity", 100) / 100
         self.setWindowOpacity(opacity)
         if self._summary_win:
@@ -3680,7 +3973,7 @@ class Overlay(QWidget):
             self.setMaximumSize(16777215, 16777215)
             self._left_widget.setFixedWidth(self.MODE_LEFT_W)
             self.setFixedWidth(self.MODE_LEFT_W)
-            self.setFixedHeight(38)
+            self.setFixedHeight(self._topbar_h)
         if not vis:  # 최소화 전환 시점에 1회 즉시 감지
             self._poll_game_window()
 
@@ -3728,7 +4021,11 @@ class Overlay(QWidget):
             f = v / 100
             self.setWindowOpacity(f)
             if self._summary_win: self._summary_win.setWindowOpacity(f)
+        def _live_ui_scale(v):
+            self.state["ui_scale"] = _clamp_ui_scale(v)
+            self._apply_cfg()
         dlg.live_opacity.connect(_live_opacity)
+        dlg.live_ui_scale.connect(_live_ui_scale)
         dlg.exec()
 
     def _on_cfg(self, cfg):
@@ -3737,15 +4034,7 @@ class Overlay(QWidget):
                  Qt.WindowType.Tool |
                  Qt.WindowType.WindowStaysOnTopHint)
         pos=self.pos(); self.setWindowFlags(flags); self.move(pos); self.show()
-        opacity = cfg["opacity"] / 100
-        self.setWindowOpacity(opacity)
-        if self._summary_win:
-            self._summary_win.setWindowOpacity(opacity)
-        self._hotkey_str = cfg["hotkey"]
-        self._hotkey_seq = QKeySequence(cfg["hotkey"])
-        self._sync_hotkey_str = cfg.get("sync_hotkey", "Ctrl+R")
-        self._sync_hotkey_seq = QKeySequence(self._sync_hotkey_str)
-        self._set_global_hotkeys_active(getattr(self, "_global_hotkeys_active", False))
+        self._apply_cfg()
 
     def _open_manager(self):
         if self._manager and not self._manager.isHidden(): self._manager.raise_(); return
@@ -3789,7 +4078,7 @@ class Overlay(QWidget):
         if e.button() == Qt.MouseButton.LeftButton:
             y = e.position().y(); x = e.position().x()
             in_topbar_y = y <= self._topbar_h
-            in_topbar_x = x <= 285   # 탑바는 항상 285px 너비
+            in_topbar_x = x <= self.MODE_LEFT_W
             if in_topbar_y and in_topbar_x:
                 self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
     def mouseMoveEvent(self, e):
