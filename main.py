@@ -19,10 +19,10 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QScrollArea, QFrame, QInputDialog,
     QMessageBox, QSlider, QCheckBox, QLineEdit, QDialog,
-    QTabWidget, QGroupBox, QComboBox, QSizePolicy, QStackedWidget,
-    QListWidget, QListWidgetItem,
+    QTabWidget, QGroupBox, QSizePolicy, QStackedWidget,
+    QListWidget, QListWidgetItem, QMenu,
 )
-from PyQt6.QtCore import Qt, QPoint, QTimer, QSize, pyqtSignal, pyqtSlot, QPointF
+from PyQt6.QtCore import Qt, QPoint, QTimer, QSize, pyqtSignal, pyqtSlot, QPointF, QEvent
 from PyQt6.QtGui import (
     QColor, QPainter, QPen, QBrush, QFont, QFontDatabase,
     QLinearGradient, QCursor, QKeySequence, QPolygonF, QIcon,
@@ -134,10 +134,56 @@ def _apply_layout_scale(layout, scale):
     if base_margins:
         layout.setContentsMargins(*[_scaled(v, scale) for v in base_margins])
 
+def _scale_stylesheet_text(text, scale):
+    if not text:
+        return text
+
+    prop_pattern = re.compile(
+        r'(?P<prefix>(?:^|[;{])\s*)(?P<prop>font-size|padding(?:-[a-z]+)?|margin(?:-[a-z]+)?|border-radius|letter-spacing|(?:min-|max-)?width|(?:min-|max-)?height)\s*:\s*(?P<value>[^;]+);',
+        re.IGNORECASE | re.MULTILINE
+    )
+    num_pattern = re.compile(r'(-?\d+(?:\.\d+)?)\s*(px|pt)?', re.IGNORECASE)
+
+    def _scale_value(match):
+        value_text = match.group("value")
+
+        def _scale_num(num_match):
+            raw = float(num_match.group(1))
+            unit = num_match.group(2) or ""
+            if raw == 0:
+                scaled = 0
+            elif raw < 0:
+                scaled = raw
+            else:
+                scaled = _scaled(raw, scale) if raw >= 1 else raw
+            if isinstance(scaled, float) and scaled.is_integer():
+                scaled = int(scaled)
+            return f"{scaled}{unit}"
+
+        scaled_value = num_pattern.sub(_scale_num, value_text)
+        return f"{match.group('prefix')}{match.group('prop')}: {scaled_value};"
+
+    return prop_pattern.sub(_scale_value, text)
+
+def _apply_stylesheet_scale(widget, scale):
+    current = widget.styleSheet()
+    if not current:
+        return
+    base = widget.property("_base_stylesheet")
+    last_scaled = widget.property("_last_scaled_stylesheet")
+    if base is None or (current != last_scaled and current != base):
+        base = current
+        widget.setProperty("_base_stylesheet", base)
+    scaled = _scale_stylesheet_text(base, scale)
+    if scaled != current:
+        widget.setStyleSheet(scaled)
+    widget.setProperty("_last_scaled_stylesheet", scaled)
+
 def _apply_widget_scale(root, scale, *, scale_width=True, width_scale=None):
     eff_width_scale = width_scale if width_scale is not None else scale
     widgets = [root] + root.findChildren(QWidget)
     for widget in widgets:
+        _apply_stylesheet_scale(widget, scale)
         font = widget.font()
         if font is not None:
             base_font = widget.property("_base_font_size")
@@ -145,8 +191,12 @@ def _apply_widget_scale(root, scale, *, scale_width=True, width_scale=None):
                 base_font = font.pointSizeF()
                 if base_font > 0:
                     widget.setProperty("_base_font_size", base_font)
-            if base_font:
-                font.setPointSizeF(_scaled_font_size(float(base_font), scale))
+            try:
+                base_font_value = float(base_font)
+            except (TypeError, ValueError):
+                base_font_value = -1.0
+            if base_font_value > 0:
+                font.setPointSizeF(_scaled_font_size(base_font_value, scale))
                 widget.setFont(font)
 
         max_w = widget.maximumWidth()
@@ -168,6 +218,38 @@ def _apply_widget_scale(root, scale, *, scale_width=True, width_scale=None):
             widget.setFixedHeight(_scaled(int(base_h), scale))
 
         _apply_layout_scale(widget.layout(), scale)
+
+def _bind_lineedit_commit_on_focus_out(line_edit, commit_fn):
+    def _focus_out(event):
+        commit_fn()
+        QLineEdit.focusOutEvent(line_edit, event)
+    line_edit.focusOutEvent = _focus_out
+
+def _bind_lineedit_escape(line_edit, escape_fn):
+    def _key_press(event):
+        if event.key() == Qt.Key.Key_Escape:
+            escape_fn()
+            event.accept()
+            return
+        QLineEdit.keyPressEvent(line_edit, event)
+    line_edit.keyPressEvent = _key_press
+
+class _OverlayStack(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._overlay_children = []
+        self.setStyleSheet("background:transparent;")
+
+    def add_overlay_child(self, child):
+        child.setParent(self)
+        self._overlay_children.append(child)
+        child.setGeometry(self.rect())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        rect = self.rect()
+        for child in self._overlay_children:
+            child.setGeometry(rect)
 
 def _ocr_log(message):
     if _OCR_DEBUG_ENABLED:
@@ -526,6 +608,31 @@ C = {
 RESET_COLOR = {"daily": "#4f9cf9", "weekly": "#c9a84c", "corridor": "#b06fff", "sanctuary": "#c9a84c", "directive": "#c9a84c"}
 RESET_LABEL = {"daily": "일간",    "weekly": "주간",    "corridor": "회랑",    "sanctuary": "성역",   "directive": "지령서"}
 
+DEFAULT_CHAR_TASKS = [
+    {"id": "daily_samyeong",     "name": "사명",              "reset": "daily",    "max": 1, "short_name": "사명"},
+    {"id": "corridor_abyss",     "name": "어비스 회랑",       "reset": "corridor", "max": 1, "short_name": "회랑"},
+    {"id": "weekly_awakening",   "name": "각성전",            "reset": "weekly",   "max": 3, "short_name": "각성"},
+    {"id": "weekly_akmong",      "name": "악몽",              "reset": "weekly",   "max": 14},
+    {"id": "weekly_abyss_rec",   "name": "심연의 재련",       "reset": "sanctuary","max": 4, "short_name": "심연"},
+    {"id": "weekly_erosion",     "name": "침식의 정화소",     "reset": "sanctuary","max": 4, "short_name": "침식"},
+]
+
+DEFAULT_SERVER_TASKS = [
+    {"id": "server_daily_dungeon",      "name": "일일던전",      "reset": "weekly", "max": 14, "short_name": "일일던전"},
+    {"id": "server_material_transform", "name": "물질변환",      "reset": "weekly", "max": 1,  "short_name": "물질변환"},
+    {"id": "server_sandwind_shop",      "name": "산들바람",      "reset": "weekly", "max": 1,  "short_name": "산들바람"},
+    {"id": "server_altcard_order",      "name": "지령서",        "reset": "directive","max": 1, "short_name": "지령서"},
+    {"id": "server_abyss_order",        "name": "어비스지령서",  "reset": "directive","max": 1, "short_name": "어비스지령서"},
+]
+
+LEGACY_REMOVED_TASK_IDS = {"weekly_raid", "weekly_dungeon", "weekly_ode_shop", "weekly_altcard", "weekly_abyss_order"}
+
+def _task_default_value(task):
+    return False if task.get("max", 1) == 1 else 0
+
+def _server_name_key(server_name):
+    return server_name or "공통"
+
 # 카테고리 표시 고정 순서. sanctuary/directive는 weekly의 시각적 하위그룹이므로
 # 표시 상 weekly로 묶임. 실제 reset_type은 유지.
 RT_ORDER      = ["daily", "corridor", "weekly", "sanctuary", "directive"]
@@ -538,35 +645,63 @@ RT_WEEKLY_GRP = {"weekly", "sanctuary", "directive"}  # 주간 초기화 그룹
 class _RoundedCard(QWidget):
     """
     QPainterPath + Antialiasing 기반 라운드 컨테이너.
-    bottom_corners=False 이면 상단 두 모서리만 라운딩 (탑바용).
-    자식 위젯이 모서리를 넘치지 않도록 paintEvent에서 클리핑 경로를 설정.
+    코너/테두리 책임을 위젯 단위로 고정하기 위해
+    코너 4개와 테두리 4변을 각각 제어한다.
     """
     def __init__(self, parent=None, *, bg="#0d0f14", border="#363d52",
-                 radius=10, bottom_corners=True):
+                 radius=10, bottom_corners=True, corners=None, border_sides=None):
         super().__init__(parent)
         self._bg     = QColor(bg)
         self._border = QColor(border) if border else None
         self._radius = radius
-        self._bottom = bottom_corners
+        if corners is None:
+            corners = (True, True, True, True) if bottom_corners else (True, True, False, False)
+        self._corners = tuple(bool(v) for v in corners)
+        self._border_sides = tuple(bool(v) for v in (border_sides or (True, True, True, True)))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+
+    def set_frame_style(self, *, bg=None, border=None, corners=None, border_sides=None):
+        if bg is not None:
+            self._bg = QColor(bg) if not isinstance(bg, QColor) else bg
+        if border is not None:
+            self._border = QColor(border) if border else None
+        if corners is not None:
+            self._corners = tuple(bool(v) for v in corners)
+        if border_sides is not None:
+            self._border_sides = tuple(bool(v) for v in border_sides)
+        self.update()
 
     def _make_path(self):
         from PyQt6.QtGui import QPainterPath
         w, h, r = self.width(), self.height(), self._radius
+        tl, tr, br, bl = self._corners
+        r = max(0.0, min(float(r), max(0.0, min((w - 1) / 2.0, (h - 1) / 2.0))))
+        left, top = 0.5, 0.5
+        right, bottom = w - 0.5, h - 0.5
         path = QPainterPath()
-        if self._bottom:
-            path.addRoundedRect(0.5, 0.5, w - 1, h - 1, r, r)
+        path.moveTo(left + (r if tl else 0), top)
+        path.lineTo(right - (r if tr else 0), top)
+        if tr and r > 0:
+            path.arcTo(right - 2 * r, top, 2 * r, 2 * r, 90, -90)
         else:
-            # 상단 두 모서리만 라운딩, 하단은 직각
-            path.moveTo(r, 0.5)
-            path.lineTo(w - r, 0.5)
-            path.arcTo(w - 2*r, 0.5, 2*r - 1, 2*r - 1, 90, -90)
-            path.lineTo(w - 0.5, h)
-            path.lineTo(0.5, h)
-            path.lineTo(0.5, r)
-            path.arcTo(0.5, 0.5, 2*r - 1, 2*r - 1, 180, -90)
-            path.closeSubpath()
+            path.lineTo(right, top)
+        path.lineTo(right, bottom - (r if br else 0))
+        if br and r > 0:
+            path.arcTo(right - 2 * r, bottom - 2 * r, 2 * r, 2 * r, 0, -90)
+        else:
+            path.lineTo(right, bottom)
+        path.lineTo(left + (r if bl else 0), bottom)
+        if bl and r > 0:
+            path.arcTo(left, bottom - 2 * r, 2 * r, 2 * r, 270, -90)
+        else:
+            path.lineTo(left, bottom)
+        path.lineTo(left, top + (r if tl else 0))
+        if tl and r > 0:
+            path.arcTo(left, top, 2 * r, 2 * r, 180, -90)
+        else:
+            path.lineTo(left, top)
+        path.closeSubpath()
         return path
 
     def resizeEvent(self, e):
@@ -575,23 +710,34 @@ class _RoundedCard(QWidget):
 
     def paintEvent(self, event):
         path = self._make_path()
+        w, h = self.width(), self.height()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        # 자식 위젯이 모서리 밖으로 넘치지 않도록 클리핑
-        p.setClipPath(path)
-        # 배경 채우기
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(self._bg))
         p.drawPath(path)
         p.end()
-        # 테두리는 클리핑 없이 별도로 그려야 선이 잘리지 않음
         if self._border:
             p2 = QPainter(self)
             p2.setRenderHint(QPainter.RenderHint.Antialiasing)
             p2.setBrush(Qt.BrushStyle.NoBrush)
             p2.setPen(QPen(self._border, 1.0))
             p2.drawPath(path)
+            if self._border_sides != (True, True, True, True):
+                erase = QPen(self._bg, 2.2)
+                p2.setPen(erase)
+                left, top = 0.5, 0.5
+                right, bottom = w - 0.5, h - 0.5
+                top_on, right_on, bottom_on, left_on = self._border_sides
+                if not top_on:
+                    p2.drawLine(QPointF(left, top), QPointF(right, top))
+                if not right_on:
+                    p2.drawLine(QPointF(right, top), QPointF(right, bottom))
+                if not bottom_on:
+                    p2.drawLine(QPointF(left, bottom), QPointF(right, bottom))
+                if not left_on:
+                    p2.drawLine(QPointF(left, top), QPointF(left, bottom))
             p2.end()
 
 # ─────────────────────────────────────────────
@@ -667,20 +813,10 @@ def apply_charges(state):
 # ─────────────────────────────────────────────
 def default_state():
     chars = ["캐릭터1","캐릭터2","캐릭터3","캐릭터4"]
-    tasks = [
-        {"id": "daily_samyeong",     "name": "사명",              "reset": "daily",    "max": 1, "short_name": "사명"},
-        {"id": "corridor_abyss",     "name": "어비스 회랑",       "reset": "corridor", "max": 1, "short_name": "회랑"},
-        {"id": "weekly_awakening",   "name": "각성전",            "reset": "weekly",   "max": 3, "short_name": "각성"},
-        {"id": "weekly_raid",        "name": "토벌전",            "reset": "weekly",   "max": 3, "short_name": "토벌"},
-        {"id": "weekly_dungeon",     "name": "일일 던전",         "reset": "weekly",   "max": 7, "sub_input": True, "short_name": "일던"},
-        {"id": "weekly_akmong",      "name": "악몽",              "reset": "weekly",   "max": 14},
-        {"id": "weekly_abyss_rec",   "name": "심연의 재련",       "reset": "sanctuary","max": 4, "short_name": "심연"},
-        {"id": "weekly_erosion",     "name": "침식의 정화소",     "reset": "sanctuary","max": 4, "short_name": "침식"},
-        {"id": "weekly_altcard",     "name": "알트카르드 지령서", "reset": "directive","max": 1, "short_name": "알트"},
-        {"id": "weekly_abyss_order", "name": "어비스 지령서",     "reset": "directive","max": 1, "short_name": "어비스"},
-        {"id": "weekly_ode_shop", "name": "물질변환/산들바람", "reset": "weekly", "max": 1, "short_name": "오드"},
-    ]
+    tasks = [dict(t) for t in DEFAULT_CHAR_TASKS]
+    server_tasks = [dict(t) for t in DEFAULT_SERVER_TASKS]
     checks = {c: {} for c in chars}
+    server_checks = {_server_name_key(""): {t["id"]: _task_default_value(t) for t in server_tasks}}
     # 오드 에너지 (캐릭터별)
     ode = {c: {
         "base": 0, "extra": 0,
@@ -695,6 +831,8 @@ def default_state():
         "chars":  chars,
         "checks": checks,
         "tasks":  tasks,
+        "server_tasks":   server_tasks,
+        "server_checks":  server_checks,
         "servers":        {c: "" for c in chars},
         "ode":            ode,
         "kina":           kina,
@@ -718,37 +856,40 @@ def load_state():
             data.setdefault("servers", {})
             data.setdefault("hidden_tasks", [])
             data.setdefault("tasks", [])
+            data.setdefault("server_tasks", [])
+            data.setdefault("server_checks", {})
             data.setdefault("kina", {})
             data.setdefault("ode", {})
             data.setdefault("sync_hotkey", "Ctrl+R")
             data.setdefault("ui_scale", 100)
 
             # ── 기본 컨텐츠 주입 (없는 것만 추가, 순서 보존) ──
-            DEFAULT_TASKS = [
-                {"id": "daily_samyeong",     "name": "사명",              "reset": "daily",    "max": 1, "short_name": "사명"},
-                {"id": "corridor_abyss",     "name": "어비스 회랑",       "reset": "corridor", "max": 1, "short_name": "회랑"},
-                {"id": "weekly_awakening",   "name": "각성전",            "reset": "weekly",   "max": 3, "short_name": "각성"},
-                {"id": "weekly_raid",        "name": "토벌전",            "reset": "weekly",   "max": 3, "short_name": "토벌"},
-                {"id": "weekly_dungeon",     "name": "일일 던전",         "reset": "weekly",   "max": 7, "sub_input": True, "short_name": "일던"},
-                {"id": "weekly_akmong",      "name": "악몽",              "reset": "weekly",   "max": 14},
-                {"id": "weekly_abyss_rec",   "name": "심연의 재련",       "reset": "sanctuary","max": 4, "short_name": "심연"},
-                {"id": "weekly_erosion",     "name": "침식의 정화소",     "reset": "sanctuary","max": 4, "short_name": "침식"},
-                {"id": "weekly_altcard",     "name": "알트카르드 지령서", "reset": "directive","max": 1, "short_name": "알트"},
-                {"id": "weekly_abyss_order", "name": "어비스 지령서",     "reset": "directive","max": 1, "short_name": "어비스"},
-                {"id": "weekly_ode_shop", "name": "물질변환/산들바람", "reset": "weekly", "max": 1, "short_name": "오드"},
-            ]
+            data["tasks"] = [t for t in data["tasks"] if t.get("id") not in LEGACY_REMOVED_TASK_IDS]
+            data["hidden_tasks"] = [tid for tid in data["hidden_tasks"] if tid not in LEGACY_REMOVED_TASK_IDS]
+
             existing_ids = {t["id"] for t in data["tasks"]}
-            for dt in DEFAULT_TASKS:
+            for dt in DEFAULT_CHAR_TASKS:
                 if dt["id"] not in existing_ids:
-                    data["tasks"].append(dt)
+                    data["tasks"].append(dict(dt))
+
+            existing_server_ids = {t["id"] for t in data["server_tasks"]}
+            for dt in DEFAULT_SERVER_TASKS:
+                if dt["id"] not in existing_server_ids:
+                    data["server_tasks"].append(dict(dt))
+            server_default_map = {dt["id"]: dt for dt in DEFAULT_SERVER_TASKS}
+            for t in data["server_tasks"]:
+                if t.get("id") in server_default_map:
+                    default_t = server_default_map[t["id"]]
+                    t["name"] = default_t["name"]
+                    t["reset"] = default_t["reset"]
+                    t["max"] = default_t["max"]
+                    t["short_name"] = default_t["short_name"]
+
             # max 필드 없는 기존 task 보정
-            id_to_default = {dt["id"]: dt for dt in DEFAULT_TASKS}
+            id_to_default = {dt["id"]: dt for dt in DEFAULT_CHAR_TASKS}
             for t in data["tasks"]:
                 if "max" not in t:
                     t["max"] = id_to_default.get(t["id"], {}).get("max", 1)
-                if "sub_input" not in t and t.get("id") in id_to_default:
-                    si = id_to_default[t["id"]].get("sub_input", False)
-                    if si: t["sub_input"] = si
                 # 오탈자 수정
                 if t.get("name") == "심연의 재권":
                     t["name"] = "심연의 재련"
@@ -770,13 +911,13 @@ def load_state():
                     sn_map = {
                         "daily_samyeong": "사명", "corridor_abyss": "회랑",
                         "weekly_altcard": "알트", "weekly_abyss_order": "어비스",
-                        "weekly_awakening": "각성", "weekly_raid": "토벌",
-                        "weekly_dungeon": "일던", "weekly_abyss_rec": "심연",
-                        "weekly_erosion": "침식", "weekly_ode_shop": "오드",
+                        "weekly_awakening": "각성", "weekly_akmong": "악몽",
+                        "weekly_abyss_rec": "심연", "weekly_erosion": "침식",
                     }
                     if t.get("id") in sn_map:
                         t["short_name"] = sn_map[t["id"]]
             tasks = data["tasks"]
+            server_tasks = data["server_tasks"]
             _ode_default = {"base":0,"extra":0,"recorded_at":None,
                             "memo":""}
             for c in data["chars"]:
@@ -786,7 +927,37 @@ def load_state():
                 for k, v in _ode_default.items():
                     data["ode"][c].setdefault(k, v)
                 for t in tasks:
-                    data["checks"][c].setdefault(t["id"], False)
+                    data["checks"][c].setdefault(t["id"], _task_default_value(t))
+
+                # 레거시 서버 통합 데이터 마이그레이션
+                srv = _server_name_key(data["servers"].get(c, ""))
+                data["server_checks"].setdefault(srv, {})
+                legacy_checks = data["checks"][c]
+                legacy_daily = legacy_checks.pop("weekly_dungeon", None)
+                legacy_ode = legacy_checks.pop("weekly_ode_shop", None)
+                legacy_alt = legacy_checks.pop("weekly_altcard", None)
+                legacy_abyss_order = legacy_checks.pop("weekly_abyss_order", None)
+                legacy_checks.pop("weekly_raid", None)
+
+                if legacy_daily not in (None, False):
+                    cur = int(data["server_checks"][srv].get("server_daily_dungeon", 0) or 0)
+                    migrated = int(legacy_daily) if isinstance(legacy_daily, int) else 0
+                    data["server_checks"][srv]["server_daily_dungeon"] = max(cur, min(14, migrated))
+                if legacy_ode:
+                    data["server_checks"][srv]["server_material_transform"] = True
+                if legacy_alt:
+                    data["server_checks"][srv]["server_altcard_order"] = True
+                if legacy_abyss_order:
+                    data["server_checks"][srv]["server_abyss_order"] = True
+
+            for srv in set(_server_name_key(v) for v in data.get("servers", {}).values()) | {_server_name_key("")}:
+                data["server_checks"].setdefault(srv, {})
+                for t in server_tasks:
+                    if t["id"] in {"server_sandwind_shop", "server_material_transform", "server_altcard_order", "server_abyss_order"}:
+                        cur = data["server_checks"][srv].get(t["id"], _task_default_value(t))
+                        data["server_checks"][srv][t["id"]] = bool(cur)
+                        continue
+                    data["server_checks"][srv].setdefault(t["id"], _task_default_value(t))
             return data
     except Exception:
         pass
@@ -826,6 +997,7 @@ def _key_corridor():
 def check_auto_reset(state):
     changed = False
     tasks = state.get("tasks", [])
+    server_tasks = state.get("server_tasks", [])
     for key_fn, reset_types, state_key in [
         (_key_daily,    {"daily"},                             "daily_reset"),
         (_key_weekly,   {"weekly", "sanctuary", "directive"},  "weekly_reset"),
@@ -836,7 +1008,11 @@ def check_auto_reset(state):
             for c in state["chars"]:
                 for t in tasks:
                     if t["reset"] in reset_types:
-                        state["checks"][c][t["id"]] = False
+                        state["checks"][c][t["id"]] = _task_default_value(t)
+            for srv, srv_data in state.get("server_checks", {}).items():
+                for t in server_tasks:
+                    if t["reset"] in reset_types:
+                        srv_data[t["id"]] = _task_default_value(t)
 
             # 주간 초기화 시 키나 획득률도 리셋
             if state_key == "weekly_reset":
@@ -877,6 +1053,18 @@ def fmt_cd(target):
     h = (total_m % 1440) // 60
     m = total_m % 60
     if d > 0: return f"{d}d {h}h {m}m"
+    return f"{h}h {m}m"
+
+def fmt_cd_compact(target):
+    diff = target - datetime.now()
+    if diff.total_seconds() <= 0:
+        return "곧"
+    total_m = int(diff.total_seconds() // 60)
+    d = total_m // 1440
+    h = (total_m % 1440) // 60
+    m = total_m % 60
+    if d > 0:
+        return f"{d}d {h}h"
     return f"{h}h {m}m"
 
 # ─────────────────────────────────────────────
@@ -1148,7 +1336,10 @@ class _SummaryView(QWidget):
 
     def _tasks(self):
         excl = {"weekly_akmong"}
-        return [t for t in self._state.get("tasks", []) if t["id"] not in excl]
+        return [
+            t for t in self._state.get("tasks", [])
+            if t["id"] not in excl and t.get("reset") != "directive"
+        ]
 
     def _servers(self):
         chars = self._state.get("chars", [])
@@ -1414,6 +1605,7 @@ class _SummaryView(QWidget):
             p.setPen(pen(BD)); p.drawLine(0, y, W, y)
 
         # 외곽 테두리
+        p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(pen(BD)); p.drawRect(0, 0, W-1, self._total_h()-1)
         p.end()
 
@@ -1473,6 +1665,228 @@ class _SummaryView(QWidget):
             self.check_toggled.emit(char, t["id"])
             self.update()
 
+
+class _ServerSummaryView(QWidget):
+    check_toggled = pyqtSignal(str, str)
+
+    HDR1_H = 30
+    HDR2_H = 0
+    ROW_H = 36
+    SERVER_W = 90
+    TASK_W = 78
+    PAD = 6
+    BD = (255, 255, 255, 18)
+    BDS = (255, 255, 255, 8)
+
+    def __init__(self, state, _active_char=None, parent=None):
+        super().__init__(parent)
+        self._state = state
+        self._hov_row = None
+        self._hov_col = None
+        self._base_metrics = {
+            "HDR1_H": self.HDR1_H,
+            "HDR2_H": self.HDR2_H,
+            "ROW_H": self.ROW_H,
+            "SERVER_W": self.SERVER_W,
+            "TASK_W": self.TASK_W,
+            "PAD": self.PAD,
+        }
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setStyleSheet("background:transparent;")
+        self.setMouseTracking(True)
+        self._apply_scale_metrics()
+        self._recalc()
+
+    def _apply_scale_metrics(self):
+        scale = _ui_scale_factor(self._state)
+        for name, base in self._base_metrics.items():
+            setattr(self, name, _scaled(base, scale))
+
+    def _font(self, family, size, weight=QFont.Weight.Normal):
+        font = QFont(family, weight=weight)
+        font.setPointSizeF(_scaled_font_size(size, _ui_scale_factor(self._state)))
+        return font
+
+    def _tasks(self):
+        return list(self._state.get("server_tasks", []))
+
+    def _servers(self):
+        order = []
+        seen = set()
+        for value in self._state.get("servers", {}).values():
+            srv = _server_name_key(value)
+            if srv not in seen:
+                seen.add(srv)
+                order.append(srv)
+        for srv, data in self._state.get("server_checks", {}).items():
+            if srv not in seen and any(bool(v) for v in data.values()):
+                seen.add(srv)
+                order.append(srv)
+        if not order:
+            order.append(_server_name_key(""))
+        return order
+
+    def _tasks_x(self):
+        return [self.SERVER_W + i * self.TASK_W for i, _ in enumerate(self._tasks())]
+
+    def _total_w(self):
+        return self.SERVER_W + len(self._tasks()) * self.TASK_W
+
+    def _total_h(self):
+        return len(self._servers()) * self.ROW_H
+
+    def _recalc(self):
+        self.setFixedSize(self._total_w(), self._total_h())
+
+    def refresh(self, state, _active_char=None):
+        self._state = state
+        self._apply_scale_metrics()
+        self._recalc()
+        self.update()
+
+    def _paint_header(self, p):
+        W = self._total_w()
+        tasks = self._tasks()
+        txs = self._tasks_x()
+        bd_pen = QPen(QColor(*self.BD), 1)
+
+        p.fillRect(0, 0, W, self.HDR1_H, QColor(C["surface"]))
+        timer_label_w = min(_scaled(24, _ui_scale_factor(self._state)), max(18, self.SERVER_W // 3))
+        p.setFont(self._font("Noto Sans KR", 7, QFont.Weight.Bold))
+        p.setPen(QColor(RESET_COLOR["weekly"]))
+        p.drawText(self.PAD, 0, timer_label_w, self.HDR1_H,
+                   Qt.AlignmentFlag.AlignVCenter, "주간")
+        p.setFont(self._font("Rajdhani", 8))
+        p.setPen(QColor(255, 255, 255, 160))
+        p.drawText(self.PAD + timer_label_w + 2, 0,
+                   self.SERVER_W - self.PAD * 2 - timer_label_w - 2, self.HDR1_H,
+                   Qt.AlignmentFlag.AlignVCenter, fmt_cd(_next_time(5, 2)))
+
+        p.setPen(QPen(QColor(C["gold"]), 1))
+        p.drawLine(self.SERVER_W, self.HDR1_H - 1, W, self.HDR1_H - 1)
+        p.setPen(bd_pen)
+        p.drawLine(self.SERVER_W, 0, self.SERVER_W, self.HDR1_H)
+
+        for i, t in enumerate(tasks):
+            if self._hov_col == i:
+                p.fillRect(txs[i], 0, self.TASK_W, self.HDR1_H, QColor(130, 90, 255, 24))
+            font_size = 8 if len(t["name"]) <= 4 else 7
+            p.setFont(self._font("Noto Sans KR", font_size, QFont.Weight.Bold))
+            p.setPen(QColor(C["gold"]) if self._hov_col != i else QColor(255, 255, 255, 220))
+            p.drawText(txs[i] + 3, 0, self.TASK_W - 6, self.HDR1_H,
+                       Qt.AlignmentFlag.AlignCenter, t["name"])
+            p.setPen(bd_pen)
+            p.drawLine(txs[i], 0, txs[i], self.HDR1_H)
+
+        p.setPen(bd_pen)
+        p.drawLine(0, self.HDR1_H, W, self.HDR1_H)
+
+    def paintEvent(self, ev):
+        from PyQt6.QtGui import QPainterPath
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        clip = QPainterPath()
+        clip.addRoundedRect(0, 0, self.width(), self.height(), 10, 10)
+        p.setClipPath(clip)
+        p.fillRect(self.rect(), QColor(0, 0, 0, 0))
+
+        tasks = self._tasks()
+        txs = self._tasks_x()
+        W = self.width()
+        bd_pen = QPen(QColor(*self.BD), 1)
+        y = 0
+        for row_idx, srv in enumerate(self._servers()):
+            is_hov = self._hov_row == row_idx
+            if row_idx % 2 == 0:
+                p.fillRect(0, y, W, self.ROW_H, QColor(255, 255, 255, 8))
+            if is_hov:
+                p.fillRect(0, y, W, self.ROW_H, QColor(130, 90, 255, 16))
+
+            p.setFont(self._font("Noto Sans KR", 10, QFont.Weight.Bold))
+            p.setPen(QColor("#ede6ff"))
+            p.drawText(self.PAD, y, self.SERVER_W - self.PAD * 2, self.ROW_H,
+                       Qt.AlignmentFlag.AlignVCenter, srv)
+            p.setPen(bd_pen)
+            p.drawLine(self.SERVER_W, y, self.SERVER_W, y + self.ROW_H)
+
+            values = self._state.get("server_checks", {}).get(srv, {})
+            for i, t in enumerate(tasks):
+                value = values.get(t["id"], _task_default_value(t))
+                cell_x = txs[i]
+                if t.get("max", 1) == 1:
+                    done = bool(value)
+                    text = "완료" if done else "미완"
+                    p.setFont(self._font("Noto Sans KR", 9, QFont.Weight.Bold if done else QFont.Weight.Normal))
+                    p.setPen(QColor(C["gold"] if done else C["text_muted"]))
+                    p.drawText(cell_x + 4, y, self.TASK_W - 8, self.ROW_H,
+                               Qt.AlignmentFlag.AlignCenter, text)
+                else:
+                    cnt = int(value or 0)
+                    done = cnt >= int(t.get("max", 0) or 0)
+                    p.setFont(self._font("Rajdhani", 10, QFont.Weight.Bold))
+                    p.setPen(QColor(C["gold"] if done else C["text_muted"]))
+                    p.drawText(cell_x, y, self.TASK_W, self.ROW_H,
+                               Qt.AlignmentFlag.AlignCenter, f"{cnt}/{t['max']}")
+                p.setPen(bd_pen)
+                p.drawLine(cell_x, y, cell_x, y + self.ROW_H)
+
+            row_pen = QPen(QColor(*self.BD if row_idx == len(self._servers()) - 1 else self.BDS), 1)
+            p.setPen(row_pen)
+            p.drawLine(0, y + self.ROW_H - 1, W, y + self.ROW_H - 1)
+            y += self.ROW_H
+
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(bd_pen)
+        p.drawRect(0, 0, self.width() - 1, self.height() - 1)
+        p.end()
+
+    def _hit(self, mx, my):
+        if not (0 <= my < self._total_h()):
+            return None
+        row_idx = my // self.ROW_H
+        servers = self._servers()
+        if row_idx < 0 or row_idx >= len(servers):
+            return None
+        if mx < self.SERVER_W:
+            return ("server", servers[row_idx], row_idx)
+        for i, x in enumerate(self._tasks_x()):
+            if x <= mx < x + self.TASK_W:
+                return ("task", servers[row_idx], i, row_idx)
+        return None
+
+    def mouseMoveEvent(self, e):
+        hit = self._hit(int(e.position().x()), int(e.position().y()))
+        new_row = hit[3] if hit and hit[0] == "task" else (hit[2] if hit and hit[0] == "server" else None)
+        new_col = hit[2] if hit and hit[0] == "task" else None
+        if new_row != self._hov_row or new_col != self._hov_col:
+            self._hov_row = new_row
+            self._hov_col = new_col
+            self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor if hit else Qt.CursorShape.ArrowCursor))
+            self.update()
+
+    def leaveEvent(self, e):
+        self._hov_row = None
+        self._hov_col = None
+        self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        self.update()
+
+    def mousePressEvent(self, e):
+        if e.button() != Qt.MouseButton.LeftButton:
+            return
+        hit = self._hit(int(e.position().x()), int(e.position().y()))
+        if not hit or hit[0] != "task":
+            return
+        _, srv, task_idx, _ = hit
+        task = self._tasks()[task_idx]
+        data = self._state.setdefault("server_checks", {}).setdefault(srv, {})
+        if task.get("max", 1) == 1:
+            data[task["id"]] = not bool(data.get(task["id"], False))
+        else:
+            cur = int(data.get(task["id"], 0) or 0)
+            max_val = int(task.get("max", 0) or 0)
+            data[task["id"]] = 0 if cur >= max_val else cur + 1
+        self.check_toggled.emit(srv, task["id"])
+        self.update()
 
 
 # ─────────────────────────────────────────────
@@ -1709,13 +2123,10 @@ class SettingsDialog(QDialog):
             btn.blockSignals(False)
 
     def _apply_live_scale(self, preset):
-        temp_state = dict(self.state)
-        temp_state["ui_scale"] = _clamp_ui_scale(preset)
-        _apply_widget_scale(self, _ui_scale_factor(temp_state), scale_width=False)
-        self.adjustSize()
-        if self.parent():
-            pp = self.parent().geometry()
-            self.move(pp.center() - self.rect().center())
+        _ = _clamp_ui_scale(preset)
+        # 설정창 자체는 UI 스케일 영향을 받지 않으므로
+        # 프리셋 변경 중에도 현재 위치를 유지한다.
+        return
 
     def _sl_css(self):
         return f"""
@@ -2298,15 +2709,14 @@ class KinaPanel(QWidget):
         rh.addWidget(btn_m)
 
         # 숫자 라벨 + 편집용 QLineEdit (오드와 동일 구조)
-        num_stack = QWidget(); num_stack.setFixedSize(VAL_W, 22)
-        num_stack.setStyleSheet("background:transparent;")
+        num_stack = _OverlayStack(); num_stack.setFixedSize(VAL_W, 22)
 
         val_lbl = QLabel("0"); val_lbl.setFont(QFont("Rajdhani",11,QFont.Weight.Bold))
-        val_lbl.setGeometry(0,0,VAL_W,22); val_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        val_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         val_lbl.setStyleSheet(f"color:{C['text']};background:transparent;"
                               f"border-bottom:1px solid {C['border2']};")
         val_lbl.setCursor(QCursor(Qt.CursorShape.IBeamCursor))
-        val_lbl.setParent(num_stack)
+        num_stack.add_overlay_child(val_lbl)
 
         val_edit = QLineEdit("0"); val_edit.setFixedSize(VAL_W, 22)
         val_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2317,7 +2727,7 @@ class KinaPanel(QWidget):
                 font-family:'Rajdhani';font-size:11px;padding:0;}}
             QLineEdit:focus{{border:1px solid {C['border2']};outline:0;}}
         """)
-        val_edit.setParent(num_stack); val_edit.hide()
+        num_stack.add_overlay_child(val_edit); val_edit.hide()
 
         def _start(e, k=kid, lbl=val_lbl, edit=val_edit):
             edit.setText(str(self._kina_data().get(k, 0)))
@@ -2328,10 +2738,15 @@ class KinaPanel(QWidget):
             self._kina_data()[k] = v2
             edit.hide(); lbl.show()
             self.refresh(); self.changed.emit()
+        def _cancel(k=kid, lbl=val_lbl, edit=val_edit):
+            edit.hide(); lbl.show()
+            self.refresh()
 
         val_lbl.mousePressEvent = _start
         val_edit.returnPressed.connect(_commit)
         val_edit.editingFinished.connect(_commit)
+        _bind_lineedit_commit_on_focus_out(val_edit, _commit)
+        _bind_lineedit_escape(val_edit, _cancel)
         rh.addWidget(num_stack)
 
         btn_p = QPushButton("+"); btn_p.setFixedSize(CTRL_W, 22)
@@ -2512,6 +2927,7 @@ class OdePanel(QWidget):
         # 기본 / 추가 슬라이더
         root.addWidget(self._make_ode_row("base",  "기본",      ODE_MAX,       "#4dbd74"))
         root.addWidget(self._make_ode_row("extra", "추가(수동)", ODE_EXTRA_MAX, "#ff9040"))
+        self.apply_scale_style()
 
     def _make_ode_row(self, field, label, max_val, color):
         w = QWidget(); w.setStyleSheet("background:transparent;")
@@ -2538,15 +2954,14 @@ class OdePanel(QWidget):
 
         # 숫자 라벨 + 편집용 QLineEdit (겹침 컨테이너)
         NUM_W = 38
-        num_stack = QWidget(); num_stack.setFixedSize(NUM_W, 22)
-        num_stack.setStyleSheet("background:transparent;")
+        num_stack = _OverlayStack(); num_stack.setFixedSize(NUM_W, 22)
 
         val_lbl = QLabel("0"); val_lbl.setFont(QFont("Rajdhani",11,QFont.Weight.Bold))
-        val_lbl.setGeometry(0,0,NUM_W,22); val_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        val_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         val_lbl.setStyleSheet(f"color:{color};background:transparent;"
                               f"border-bottom:1px solid {color}33;")
         val_lbl.setCursor(QCursor(Qt.CursorShape.IBeamCursor))
-        val_lbl.setParent(num_stack)
+        num_stack.add_overlay_child(val_lbl)
 
         val_edit = QLineEdit("0"); val_edit.setFixedSize(NUM_W,22)
         val_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2557,7 +2972,7 @@ class OdePanel(QWidget):
                 font-family:'Rajdhani';font-size:11px;padding:0;}}
             QLineEdit:focus{{border:1px solid {C['border2']};outline:0;}}
         """)
-        val_edit.setParent(num_stack); val_edit.hide()
+        num_stack.add_overlay_child(val_edit); val_edit.hide()
 
         def start_edit(e, f=field, mv=max_val, lbl=val_lbl, edit=val_edit):
             edit.setText(str(self._od().get(f, 0)))
@@ -2567,10 +2982,15 @@ class OdePanel(QWidget):
             except ValueError: v2 = self._od().get(f, 0)
             self._od()[f] = v2; edit.hide(); lbl.show()
             self.refresh(); self.changed.emit()
+        def cancel_edit(f=field, lbl=val_lbl, edit=val_edit):
+            edit.hide(); lbl.show()
+            self.refresh()
 
         val_lbl.mousePressEvent = start_edit
         val_edit.returnPressed.connect(commit_edit)
         val_edit.editingFinished.connect(commit_edit)
+        _bind_lineedit_commit_on_focus_out(val_edit, commit_edit)
+        _bind_lineedit_escape(val_edit, cancel_edit)
         rh.addWidget(num_stack)
 
         # + 버튼
@@ -2585,13 +3005,6 @@ class OdePanel(QWidget):
         # 슬라이더
         slider = QSlider(Qt.Orientation.Horizontal); slider.setRange(0, max_val)
         slider.setSingleStep(5); slider.setPageStep(5)
-        slider.setFixedHeight(16)
-        slider.setStyleSheet(f"""
-            QSlider::groove:horizontal{{height:4px;background:{C['surface2']};border-radius:2px;}}
-            QSlider::handle:horizontal{{background:{color};width:12px;height:12px;
-                border-radius:6px;margin:-4px 0;}}
-            QSlider::sub-page:horizontal{{background:{color};border-radius:2px;}}
-        """)
         slider.valueChanged.connect(lambda val, f=field, mv=max_val: self._set_ode(f, mv, round(val/5)*5))
         v.addWidget(slider)
 
@@ -2599,7 +3012,35 @@ class OdePanel(QWidget):
         setattr(self, f"_edit_{field}",   val_edit)
         setattr(self, f"_slider_{field}", slider)
         setattr(self, f"_max_{field}",    max_val)
+        setattr(self, f"_slider_color_{field}", color)
         return w
+
+    def _ode_slider_style(self, color, scale):
+        groove_h = _scaled(4, scale)
+        handle_d = _scaled(12, scale)
+        handle_r = handle_d // 2
+        groove_r = max(2, groove_h // 2)
+        margin_v = -max(0, (handle_d - groove_h) // 2)
+        return (
+            max(_scaled(16, scale), handle_d + 4),
+            f"""
+                QSlider::groove:horizontal{{height:{groove_h}px;background:{C['surface2']};border-radius:{groove_r}px;}}
+                QSlider::handle:horizontal{{background:{color};width:{handle_d}px;height:{handle_d}px;
+                    border-radius:{handle_r}px;margin:{margin_v}px 0;}}
+                QSlider::sub-page:horizontal{{background:{color};border-radius:{groove_r}px;}}
+            """
+        )
+
+    def apply_scale_style(self):
+        scale = _ui_scale_factor(self.state)
+        for field in ("base", "extra"):
+            slider = getattr(self, f"_slider_{field}", None)
+            color = getattr(self, f"_slider_color_{field}", None)
+            if slider is None or color is None:
+                continue
+            slider_h, style = self._ode_slider_style(color, scale)
+            slider.setFixedHeight(slider_h)
+            slider.setStyleSheet(style)
 
     def _btn_style(self):
         return f"""QPushButton{{color:{C['text_muted']};background:{C['surface2']};
@@ -2639,6 +3080,357 @@ class OdePanel(QWidget):
             sl = getattr(self, f"_slider_{field}")
             sl.blockSignals(True); sl.setValue(v); sl.blockSignals(False)
         self._upd_timer_labels()
+
+
+class _CountAdjustRow(QWidget):
+    toggled = pyqtSignal(str)
+
+    def __init__(self, task, value, parent=None):
+        super().__init__(parent)
+        self.task_id = task["id"]
+        self._max = int(task.get("max", 0) or 0)
+        self.count = int(value or 0)
+        self.setStyleSheet("background:transparent;")
+        self.setFixedHeight(30)
+
+        h = QHBoxLayout(self); h.setContentsMargins(14, 0, 14, 0); h.setSpacing(6)
+        lbl = QLabel(task["name"]); lbl.setFont(QFont("Noto Sans KR", 10))
+        lbl.setStyleSheet(f"color:{C['text']};background:transparent;")
+        h.addWidget(lbl, 1)
+
+        def _btn(text):
+            b = QPushButton(text)
+            b.setFixedSize(20, 20)
+            b.setStyleSheet(_sbtn() + "QPushButton{padding:0;font-size:11px;}")
+            return b
+
+        self._btn_m = _btn("−")
+        NUM_W = 50
+        num_stack = _OverlayStack()
+        num_stack.setFixedSize(NUM_W, 22)
+
+        self._value_label = QLabel("")
+        self._value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._value_label.setFont(QFont("Rajdhani", 10, QFont.Weight.Bold))
+        self._value_label.setStyleSheet(
+            f"color:{RESET_COLOR.get(task['reset'], C['text'])};background:transparent;"
+            f"border-bottom:1px solid {C['border2']};")
+        self._value_label.setCursor(QCursor(Qt.CursorShape.IBeamCursor))
+        num_stack.add_overlay_child(self._value_label)
+
+        self._value_edit = QLineEdit("0")
+        self._value_edit.setFixedSize(NUM_W, 22)
+        self._value_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._value_edit.setFont(QFont("Rajdhani", 10, QFont.Weight.Bold))
+        self._value_edit.setStyleSheet(f"""
+            QLineEdit{{color:{RESET_COLOR.get(task['reset'], C['text'])};background:{C['surface2']};
+                border:1px solid {C['border2']};border-radius:3px;
+                font-family:'Rajdhani';font-size:10px;padding:0;}}
+            QLineEdit:focus{{border:1px solid {C['border2']};outline:0;}}
+        """)
+        num_stack.add_overlay_child(self._value_edit)
+        self._value_edit.hide()
+        self._btn_p = _btn("+")
+
+        self._btn_m.clicked.connect(lambda: self._adjust(-1))
+        self._btn_p.clicked.connect(lambda: self._adjust(+1))
+        self._value_label.mousePressEvent = self._start_edit
+        self._value_edit.returnPressed.connect(self._commit_edit)
+        self._value_edit.editingFinished.connect(self._commit_edit)
+        _bind_lineedit_commit_on_focus_out(self._value_edit, self._commit_edit)
+        _bind_lineedit_escape(self._value_edit, self._cancel_edit)
+
+        h.addWidget(self._btn_m)
+        h.addWidget(num_stack)
+        h.addWidget(self._btn_p)
+        self.refresh()
+
+    def _adjust(self, delta):
+        self.count = max(0, min(self._max, self.count + delta))
+        self.refresh()
+        self.toggled.emit(self.task_id)
+
+    def _start_edit(self, _event):
+        self._value_edit.setText(str(self.count))
+        self._value_label.hide()
+        self._value_edit.show()
+        self._value_edit.setFocus()
+        self._value_edit.selectAll()
+
+    def _commit_edit(self):
+        if not self._value_edit.isVisible():
+            return
+        try:
+            value = int(self._value_edit.text())
+        except ValueError:
+            value = self.count
+        self.count = max(0, min(self._max, value))
+        self._value_edit.hide()
+        self._value_label.show()
+        self.refresh()
+        self.toggled.emit(self.task_id)
+
+    def _cancel_edit(self):
+        if not self._value_edit.isVisible():
+            return
+        self._value_edit.hide()
+        self._value_label.show()
+        self.refresh()
+
+    def refresh(self):
+        self._value_label.setText(f"{self.count}/{self._max}")
+
+
+class ServerSharedPanel(QWidget):
+    changed = pyqtSignal()
+
+    def __init__(self, state, server_name, parent=None):
+        super().__init__(parent)
+        self.state = state
+        self.server_name = _server_name_key(server_name)
+        self._rows = {}
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("background:transparent;")
+        self._build()
+        self.refresh()
+
+    def _server_data(self):
+        data = self.state.setdefault("server_checks", {}).setdefault(self.server_name, {})
+        for task in self.state.get("server_tasks", []):
+            data.setdefault(task["id"], _task_default_value(task))
+        return data
+
+    def _build(self):
+        root = QVBoxLayout(self); root.setContentsMargins(8, 6, 8, 6); root.setSpacing(6)
+
+        hdr = QHBoxLayout()
+        title = QLabel("서버 공용"); title.setFont(QFont("Noto Sans KR", 9, QFont.Weight.Bold))
+        title.setStyleSheet(f"color:{C['accent']};background:transparent;")
+        hdr.addWidget(title)
+        badge = QLabel(self.server_name); badge.setFont(QFont("Noto Sans KR", 8))
+        badge.setStyleSheet(f"color:{C['text_muted']};background:transparent;")
+        hdr.addWidget(badge)
+        hdr.addStretch()
+        root.addLayout(hdr)
+
+        for task in self.state.get("server_tasks", []):
+            if task["id"] == "server_daily_dungeon":
+                row = self._make_count_row(task)
+            else:
+                row = CheckRow(task, self._server_data().get(task["id"], _task_default_value(task)), show_badge=False)
+            row.toggled.connect(self._on_toggle)
+            self._rows[task["id"]] = row
+            root.addWidget(row)
+
+    def _make_count_row(self, task):
+        return _CountAdjustRow(task, self._server_data().get(task["id"], 0))
+
+    def _on_toggle(self, tid):
+        sender = self.sender()
+        data = self._server_data()
+        if hasattr(sender, "count"):
+            data[tid] = sender.count
+        else:
+            data[tid] = not bool(data.get(tid, False))
+        self.changed.emit()
+
+    def refresh(self):
+        data = self._server_data()
+        for task in self.state.get("server_tasks", []):
+            row = self._rows.get(task["id"])
+            if not row:
+                continue
+            value = data.get(task["id"], _task_default_value(task))
+            row.count = (1 if value else 0) if task.get("max", 1) == 1 else int(value or 0)
+            if hasattr(row, "_refresh"):
+                row._refresh()
+                row.update()
+            elif hasattr(row, "_value_label"):
+                row._value_label.setText(f"{row.count}/{task.get('max', 14)}")
+
+
+class _SelectButton(QPushButton):
+    changed = pyqtSignal(object)
+
+    def __init__(self, color, min_chars=6, parent=None):
+        super().__init__(parent)
+        self._accent = color
+        self._items = []
+        self._current_data = None
+        self._current_label = ""
+        self._min_chars = min_chars
+        self._menu = QMenu(self)
+        self._menu.setStyleSheet(self._menu_style())
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setFixedHeight(28)
+        self.setMinimumWidth(max(60, min_chars * 10))
+        self._text_label = QLabel("", self)
+        self._text_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self._text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._text_label.setStyleSheet("background:transparent;border:none;")
+        self._arrow = QLabel("▾", self)
+        self._arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._arrow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._arrow.setStyleSheet(f"color:{self._accent};background:transparent;border:none;")
+        self.setStyleSheet(self._button_style())
+        self.clicked.connect(self._show_menu)
+        self._sync_arrow_font()
+        self._refresh_label()
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        if self.width() > 0:
+            hint.setWidth(self.width())
+        if self.height() > 0:
+            hint.setHeight(self.height())
+        return hint
+
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        if self.width() > 0:
+            hint.setWidth(self.width())
+        else:
+            hint.setWidth(max(60, self._min_chars * 10))
+        if self.height() > 0:
+            hint.setHeight(self.height())
+        return hint
+
+    def _button_style(self):
+        return f"""
+            QPushButton {{
+                background:{C['surface2']};
+                border:1px solid {C['border2']};
+                border-radius:5px;
+                padding:0;
+            }}
+            QPushButton:hover {{
+                border-color:{self._accent}88;
+            }}
+        """
+
+    def _menu_style(self):
+        return f"""
+            QMenu {{
+                background:{C['surface2']};
+                color:{C['text']};
+                border:1px solid {C['border2']};
+                padding:2px 0;
+                font-family:'Noto Sans KR';
+                font-size:10px;
+            }}
+            QMenu::item {{
+                padding:6px 10px;
+                margin:0;
+            }}
+            QMenu::item:selected {{
+                background:{self._accent}22;
+            }}
+        """
+
+    def _show_menu(self):
+        if not self._items:
+            return
+        self._menu.setFixedWidth(self.width())
+        self._menu.exec(self.mapToGlobal(self.rect().bottomLeft()))
+
+    def _refresh_label(self):
+        label = self._current_label or ""
+        self.setText("")
+        self.setToolTip(label)
+        self._sync_label_styles()
+        self._sync_text_label()
+        self._arrow.setVisible(bool(self._items))
+        self._layout_contents()
+
+    def _sync_arrow_font(self):
+        arrow_font = QFont(self.font())
+        arrow_font.setBold(True)
+        self._arrow.setFont(arrow_font)
+
+    def _sync_label_styles(self):
+        text_color = self._accent if self.isEnabled() else C["text_muted"]
+        self._text_label.setStyleSheet(f"color:{text_color};background:transparent;border:none;")
+        self._arrow.setStyleSheet(f"color:{text_color};background:transparent;border:none;")
+
+    def _sync_text_label(self):
+        left_pad = 8
+        right_pad = 24
+        available_w = max(10, self.width() - left_pad - right_pad)
+        metrics = self._text_label.fontMetrics()
+        display = metrics.elidedText(self._current_label or "", Qt.TextElideMode.ElideRight, available_w)
+        self._text_label.setText(display)
+
+    def _layout_contents(self):
+        left_pad = 8
+        right_pad = 6
+        arrow_w = max(14, self.fontMetrics().horizontalAdvance("▾") + 2)
+        self._arrow.setGeometry(self.width() - arrow_w - right_pad, 0, arrow_w, self.height())
+        text_right = self._arrow.x() - 4
+        self._text_label.setGeometry(left_pad, 0, max(10, text_right - left_pad), self.height())
+        self._sync_text_label()
+
+    def set_items(self, items):
+        cleaned = []
+        seen = set()
+        for label, data in items:
+            text = str(label).strip() if label is not None else ""
+            if not text:
+                continue
+            key = (text, data)
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append((text, data))
+        self._items = cleaned
+
+        self._menu.clear()
+        for text, data in self._items:
+            act = self._menu.addAction(text)
+            act.triggered.connect(lambda checked=False, value=data: self.set_current_data(value, emit=True))
+
+        if self._current_data not in [data for _, data in self._items]:
+            self._current_data = self._items[0][1] if self._items else None
+
+        self.setEnabled(bool(self._items))
+        self._update_current_label()
+
+    def _update_current_label(self):
+        self._current_label = ""
+        for text, data in self._items:
+            if data == self._current_data:
+                self._current_label = text
+                break
+        self._refresh_label()
+
+    def set_current_data(self, data, emit=False):
+        if data not in [item_data for _, item_data in self._items]:
+            data = self._items[0][1] if self._items else None
+        if data == self._current_data and not emit:
+            self._update_current_label()
+            return
+        self._current_data = data
+        self._update_current_label()
+        if emit:
+            self.changed.emit(self._current_data)
+
+    def current_data(self):
+        return self._current_data
+
+    def set_popup_font(self, font):
+        self.setFont(font)
+        self._menu.setFont(font)
+        self._text_label.setFont(font)
+        self._sync_arrow_font()
+        self._sync_text_label()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._layout_contents()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.EnabledChange:
+            self._sync_label_styles()
 
 
 
@@ -2809,8 +3601,10 @@ def _parse_char_input(raw):
 class _SummaryWindow(QWidget):
     closed = pyqtSignal()
     char_selected = pyqtSignal(str)
+    check_toggled = pyqtSignal(object, str)
 
     RADIUS = 10
+    MODE_BAR_H = 34
 
     def __init__(self, state, active_char, parent=None):
         super().__init__(parent)
@@ -2821,17 +3615,23 @@ class _SummaryWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._state = state
+        self._active_char = active_char
+        self._mode = "char"
+        self._apply_scale_metrics()
 
         rl = QVBoxLayout(self)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(0)
 
-        # 요약뷰
-        self._sv = _SummaryView(state, active_char)
-        self._sv.char_selected.connect(self.char_selected)
+        self._char_view = _SummaryView(state, active_char)
+        self._char_view.char_selected.connect(self.char_selected)
+        self._char_view.check_toggled.connect(self._emit_check_toggled)
 
-        # 헤더 높이
-        self._header_h = self._sv.HDR1_H + self._sv.HDR2_H
+        self._server_view = _ServerSummaryView(state, active_char)
+        self._server_view.check_toggled.connect(self._emit_check_toggled)
+
+        self._active_view = self._char_view
+        self._header_h = self._mode_bar_h + self._active_view.HDR1_H + self._active_view.HDR2_H
 
         # 스크롤 영역 — _sv 전체(헤더+바디)를 담되,
         # 레이아웃 상단 마진을 헤더 높이만큼 줘서 헤더 영역은 스크롤 밖에 위치하게 함
@@ -2849,20 +3649,22 @@ class _SummaryWindow(QWidget):
         """)
         self._scroll.viewport().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._scroll.viewport().setStyleSheet("border:none; background:transparent;")
-        self._scroll.setWidget(self._sv)
+        self._scroll.setWidget(self._active_view)
 
-        # 레이아웃 상단 마진 = 헤더 높이
-        # → 헤더는 paintEvent에서 창 상단 고정으로 그리고,
-        #   스크롤 영역은 그 아래부터 배치
         rl.setContentsMargins(0, self._header_h, 0, 0)
         rl.addWidget(self._scroll)
 
-        # 창 너비 = 내용 너비에 맞춤
-        self.setFixedWidth(self._sv._total_w())
+        self._btn_char = QPushButton("캐릭터", self)
+        self._btn_server = QPushButton("서버", self)
+        for btn, mode in ((self._btn_char, "char"), (self._btn_server, "server")):
+            btn.setCheckable(True)
+            btn.clicked.connect(lambda checked=False, m=mode: self._set_mode(m))
+
+        self._set_mode("char", initial=True)
         self.snap_height()
 
-
-
+    def _apply_scale_metrics(self):
+        self._mode_bar_h = _scaled(self.MODE_BAR_H, _ui_scale_factor(self._state))
 
     def paintEvent(self, e):
         from PyQt6.QtGui import QPainterPath
@@ -2875,29 +3677,26 @@ class _SummaryWindow(QWidget):
         p.setClipPath(clip)
 
         W        = self.width()
-        hdr_h    = self._header_h   # HDR1_H + HDR2_H
+        hdr_h    = self._header_h
 
-        # ── 고정 헤더 배경 (창 상단에 항상 고정) ──
         p.fillRect(0, 0, W, hdr_h, QColor(C["surface"]))
-
-        # ── 헤더 내용 그리기 (_sv 좌표계와 동일하므로 translate 불필요) ──
-        self._sv._paint_header(p)
+        p.fillRect(0, self._mode_bar_h - 1, W, 1, QColor(C["border"]))
+        p.save()
+        p.translate(0, self._mode_bar_h)
+        self._active_view._paint_header(p)
+        p.restore()
 
         p.end()
 
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        _apply_rounded_mask(self, self.RADIUS)
-
     def snap_height(self, _unused=None):
         """메인 창 높이에 고정하지 않고 표 내용에 맞춰 높이를 조정한다."""
-        self._header_h = self._sv.HDR1_H + self._sv.HDR2_H
+        self._header_h = self._mode_bar_h + self._active_view.HDR1_H + self._active_view.HDR2_H
         self.layout().setContentsMargins(0, self._header_h, 0, 0)
 
         screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()
         available_h = screen.availableGeometry().height() if screen else 900
         max_body_h = max(140, available_h - self._header_h - 32)
-        body_h = min(self._sv._total_h(), max_body_h)
+        body_h = min(self._active_view._total_h(), max_body_h)
 
         self._scroll.setFixedHeight(body_h)
         self.setFixedHeight(self._header_h + body_h)
@@ -2905,10 +3704,64 @@ class _SummaryWindow(QWidget):
 
     def refresh(self, state, active_char):
         self._state = state
-        self._sv.refresh(state, active_char)
-        # 캐릭터/컨텐츠 변경 시 너비 재계산
-        self.setFixedWidth(self._sv._total_w())
+        self._active_char = active_char
+        self._apply_scale_metrics()
+        self._char_view.refresh(state, active_char)
+        self._server_view.refresh(state, active_char)
+        self.setFixedWidth(self._active_view._total_w())
+        self._btn_char.setStyleSheet(self._mode_btn_style(self._mode == "char"))
+        self._btn_server.setStyleSheet(self._mode_btn_style(self._mode == "server"))
         self.snap_height()
+        self._layout_mode_buttons()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        _apply_rounded_mask(self, self.RADIUS)
+        self._layout_mode_buttons()
+
+    def _mode_btn_style(self, active):
+        scale = _ui_scale_factor(self._state)
+        radius = _scaled(5, scale)
+        font_size = _scaled_font_size(10, scale)
+        if active:
+            return f"""
+                QPushButton{{background:{C['gold']}22;color:{C['gold']};border:1px solid {C['gold']}88;
+                    border-radius:{radius}px;font-family:'Noto Sans KR';font-size:{font_size}px;font-weight:500;}}
+                QPushButton:hover{{background:{C['gold']}33;border-color:{C['gold']};}}
+            """
+        return f"""
+            QPushButton{{background:{C['surface2']};color:{C['text_muted']};border:1px solid {C['border']};
+                border-radius:{radius}px;font-family:'Noto Sans KR';font-size:{font_size}px;}}
+            QPushButton:hover{{border-color:{C['border2']};color:{C['text']};}}
+        """
+
+    def _layout_mode_buttons(self):
+        scale = _ui_scale_factor(self._state)
+        pad = _scaled(8, scale)
+        gap = _scaled(6, scale)
+        btn_w = _scaled(68, scale)
+        btn_h = _scaled(24, scale)
+        y = max(0, (self._mode_bar_h - btn_h) // 2)
+        self._btn_char.setGeometry(pad, y, btn_w, btn_h)
+        self._btn_server.setGeometry(pad + btn_w + gap, y, btn_w, btn_h)
+
+    def _set_mode(self, mode, initial=False):
+        self._mode = mode
+        self._active_view = self._char_view if mode == "char" else self._server_view
+        self._scroll.takeWidget()
+        self._scroll.setWidget(self._active_view)
+        self._btn_char.setChecked(mode == "char")
+        self._btn_server.setChecked(mode == "server")
+        self._btn_char.setStyleSheet(self._mode_btn_style(mode == "char"))
+        self._btn_server.setStyleSheet(self._mode_btn_style(mode == "server"))
+        self.setFixedWidth(self._active_view._total_w())
+        self.snap_height()
+        self._layout_mode_buttons()
+        if not initial:
+            self.update()
+
+    def _emit_check_toggled(self, key, tid):
+        self.check_toggled.emit(key, tid)
 
     def closeEvent(self, e): self.closed.emit(); super().closeEvent(e)
 
@@ -2940,8 +3793,6 @@ class ManagerWindow(QWidget):
             QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}}
         """)
         self._build()
-        dlg_scale = _ui_scale_factor(self.state)
-        _apply_widget_scale(self, dlg_scale, scale_width=False)
         self.setFixedWidth(453)
         self.setMinimumHeight(max(416, self.height()))
 
@@ -3050,6 +3901,10 @@ class ManagerWindow(QWidget):
             self.state["checks"][nick] = self.state["checks"].pop(old_key)
             self.state.get("servers", {}).pop(old_key, None)
         self.state.setdefault("servers", {})[nick] = srv
+        server_key = _server_name_key(srv)
+        self.state.setdefault("server_checks", {}).setdefault(server_key, {})
+        for task in self.state.get("server_tasks", []):
+            self.state["server_checks"][server_key].setdefault(task["id"], _task_default_value(task))
         save_state(self.state); self._refresh_clist(); self.state_changed.emit()
 
     # ── 추가 ──
@@ -3063,6 +3918,10 @@ class ManagerWindow(QWidget):
         self.state["chars"].append(nick)
         self.state["checks"][nick] = {}
         self.state.setdefault("servers", {})[nick] = srv
+        server_key = _server_name_key(srv)
+        self.state.setdefault("server_checks", {}).setdefault(server_key, {})
+        for task in self.state.get("server_tasks", []):
+            self.state["server_checks"][server_key].setdefault(task["id"], _task_default_value(task))
         save_state(self.state); self._refresh_clist(); self.state_changed.emit()
 
     # ── 삭제 ──
@@ -3085,11 +3944,45 @@ class ManagerWindow(QWidget):
     # ── 컨텐츠 탭 ──
     def _content_tab(self):
         w = QWidget(); w.setStyleSheet(f"background:{C['bg']};")
-        v = QVBoxLayout(w); v.setContentsMargins(8,8,8,8); v.setSpacing(6)
+        v = QVBoxLayout(w); v.setContentsMargins(8,8,8,8); v.setSpacing(8)
 
         hint = QLabel("⠿ 핸들 드래그로 같은 초기화 타입 내 순서 변경")
         hint.setStyleSheet(f"color:{C['text_muted']};font-size:9px;background:transparent;")
         v.addWidget(hint)
+
+        shared_strip = QWidget()
+        shared_strip.setStyleSheet(
+            f"background:{C['surface']};border:1px solid {C['border']};border-radius:5px;")
+        sh = QHBoxLayout(shared_strip); sh.setContentsMargins(8, 7, 8, 7); sh.setSpacing(8)
+        badge = QLabel("서버 공용")
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setFixedWidth(66)
+        badge.setStyleSheet(f"""
+            background:{C['accent_dim']};
+            color:{C['accent']};
+            border:1px solid {C['accent']}44;
+            border-radius:4px;
+            font-size:9px;
+            font-weight:500;
+            padding:2px 6px;
+        """)
+        sh.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+
+        shared_info = QWidget(); shared_info.setStyleSheet("background:transparent;border:none;")
+        siv = QVBoxLayout(shared_info); siv.setContentsMargins(0, 0, 0, 0); siv.setSpacing(2)
+        info_title = QLabel("요약뷰의 서버 탭에서 함께 관리됩니다.")
+        info_title.setStyleSheet(f"color:{C['text']};background:transparent;border:none;font-size:10px;")
+        shared_names = " · ".join(
+            [t.get("name", "") for t in self.state.get("server_tasks", []) if t.get("name")]
+        )
+        info_meta = QLabel(shared_names or "서버 공용 항목 없음")
+        info_meta.setWordWrap(True)
+        info_meta.setStyleSheet(
+            f"color:{C['text_muted']};font-size:9px;background:transparent;border:none;")
+        siv.addWidget(info_title)
+        siv.addWidget(info_meta)
+        sh.addWidget(shared_info, 1)
+        v.addWidget(shared_strip)
 
         # ── 2열 레이아웃: 좌(일간+회랑) | 우(주간) ──
         cols = QHBoxLayout(); cols.setSpacing(8)
@@ -3216,6 +4109,7 @@ class UpdateManager:
 # MAIN OVERLAY
 # ─────────────────────────────────────────────
 class Overlay(QWidget):
+    BASE_LEFT_W = 255
     _hotkey_signal = pyqtSignal()   # 전역 단축키 → 메인 스레드로 안전하게 전달
     _ode_sync_result_signal = pyqtSignal(str, object)
     _sync_hotkey_signal = pyqtSignal()
@@ -3258,7 +4152,6 @@ class Overlay(QWidget):
         self._render_tasks()
         self._start_timers()
         self._apply_cfg()
-        QTimer.singleShot(200, self._poll_game_window)
 
     # ── Window ──
     def _setup_window(self):
@@ -3266,26 +4159,23 @@ class Overlay(QWidget):
                  Qt.WindowType.WindowStaysOnTopHint)
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedWidth(285)
+        self.setFixedWidth(self.BASE_LEFT_W)
         self.adjustSize()
         px,py=self.state.get("overlay_pos",[None,None])
         if px is not None: self.move(int(px),int(py))
         else:
             scr=QApplication.primaryScreen().geometry()
-            self.move(scr.width()-324,20)
+            self.move(scr.width() - (self.BASE_LEFT_W + 39), 20)
 
     def _apply_ui_scale(self):
         scale = _ui_scale_factor(self.state)
-        self.MODE_LEFT_W = _scaled(285, scale)
-        self._topbar_h = _scaled(38, scale)
+        self.MODE_LEFT_W = _scaled(self.BASE_LEFT_W, scale)
+        metrics = self._topbar_metrics(scale)
+        self._topbar_h = metrics["frame_h"]
+        self._mini_topbar_h = metrics["mini_h"]
 
-        _apply_widget_scale(self, scale)
-
-        if hasattr(self, "_left_widget"):
-            self._left_widget.setFixedWidth(self.MODE_LEFT_W)
-        if hasattr(self, "_bar"):
-            self._bar.setFixedSize(self.MODE_LEFT_W, self._topbar_h)
-        self.setFixedWidth(self.MODE_LEFT_W)
+        if hasattr(self, "card"):
+            _apply_widget_scale(self.card, scale)
 
         icon_sz = _scaled(22, scale)
         icon_path = _resource_path("odeframe_icon.png")
@@ -3303,35 +4193,14 @@ class Overlay(QWidget):
                 self._mini_icon_lbl.setPixmap(pix)
                 self._mini_icon_lbl.setFixedSize(icon_sz, icon_sz)
 
-        if hasattr(self, "_mini_icon_lbl"):
-            self._mini_icon_lbl.setGeometry(_scaled(8, scale), _scaled(8, scale), icon_sz, icon_sz)
-        if hasattr(self, "_mini_char_lbl"):
-            self._mini_char_lbl.setGeometry(_scaled(36, scale), 0, _scaled(107, scale), self._topbar_h)
-        if hasattr(self, "_mini_ode_lbl"):
-            self._mini_ode_lbl.setGeometry(_scaled(143, scale), 0, _scaled(44, scale), self._topbar_h)
+        self._apply_topbar_frame(adjust_window=True)
 
-        btn_w = _scaled(26, scale)
-        btn_h = _scaled(20, scale)
-        btn_y = _scaled(9, scale)
-        if hasattr(self, "_btn_expand"):
-            self._btn_expand.setFixedSize(btn_w, btn_h)
-            self._btn_expand.move(_scaled(189, scale), btn_y)
-        if hasattr(self, "_btn_sync_ode"):
-            self._btn_sync_ode.setFixedSize(btn_w, btn_h)
-            self._btn_sync_ode.move(_scaled(219, scale), btn_y)
-        if hasattr(self, "_btn_minimize"):
-            self._btn_minimize.setFixedSize(btn_w, btn_h)
-            self._btn_minimize.move(_scaled(249, scale), btn_y)
+        if hasattr(self, "_ode_panel") and self._ode_panel:
+            self._ode_panel.apply_scale_style()
 
         if getattr(self, "_summary_win", None):
             self._summary_win.refresh(self.state, self.active_char)
             self._summary_win.setWindowOpacity(self.state.get("opacity", 100) / 100)
-
-        if getattr(self, "_is_mini", False):
-            self.setFixedHeight(self._topbar_h)
-        else:
-            self.setMaximumHeight(16777215)
-            QTimer.singleShot(0, self._adj_height)
 
     def _apply_cfg(self):
         self.state["ui_scale"] = _clamp_ui_scale(self.state.get("ui_scale", 100))
@@ -3413,35 +4282,30 @@ class Overlay(QWidget):
         if getattr(self, "_btn_sync_ode", None) and not self._btn_sync_ode.isEnabled():
             return
         self._sync_ode_from_game()
-   
-    @pyqtSlot()
-    @pyqtSlot()
-    def _toggle_visibility(self):
-        """단축키 → 최소화 토글."""
-        self._toggle_minimize()
 
     # ── UI ──
     def _build_ui(self):
         self.card = _RoundedCard(self, bg=C["bg"], border=C["border"], radius=10)
         self.card.setObjectName("card")
-        rl=QVBoxLayout(self); rl.setContentsMargins(0,0,0,0); rl.addWidget(self.card)
+        rl = QVBoxLayout(self)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.addWidget(self.card)
 
-        # 카드 가로 분리: 좌측(메인)만 — 체크리스트는 별도 창
-        card_h = QHBoxLayout(self.card); card_h.setContentsMargins(0,0,0,0); card_h.setSpacing(0)
-
-        # 좌측 메인
-        self._left_widget = QWidget(); self._left_widget.setStyleSheet("background:transparent;")
-        self._left_widget.setFixedWidth(285)
-        self._vb = QVBoxLayout(self._left_widget); self._vb.setContentsMargins(0,0,0,0); self._vb.setSpacing(0)
-        card_h.addWidget(self._left_widget)
+        # 외곽은 self.card 하나만 담당하고, 내부는 topbar + content만 쌓는다.
+        self._left_widget = self.card
+        self._vb = QVBoxLayout(self.card)
+        self._vb.setContentsMargins(1, 1, 1, 1)
+        self._vb.setSpacing(0)
 
         # 탑바
         self._build_topbar()
 
-        # 콘텐츠 위젯
-        self._content_widget = QWidget(); self._content_widget.setStyleSheet("background:transparent;")
+        # 콘텐츠 영역
+        self._content_widget = QWidget(self.card)
+        self._content_widget.setStyleSheet("background:transparent;")
         self._cvb = QVBoxLayout(self._content_widget)
-        self._cvb.setContentsMargins(0,0,0,0); self._cvb.setSpacing(0)
+        self._cvb.setContentsMargins(0, 0, 0, 0)
+        self._cvb.setSpacing(0)
         self._vb.addWidget(self._content_widget)
 
         # 상태 초기화
@@ -3452,10 +4316,22 @@ class Overlay(QWidget):
         self._build_content_area()
 
     def _build_topbar(self):
-        self._bar = _RoundedCard(self._left_widget, bg=C["surface"], border=None, radius=10, bottom_corners=False)
-        self._bar.setFixedSize(285, 38)
+        metrics = self._topbar_metrics()
+        self._topbar_h = metrics["frame_h"]
+        self._mini_topbar_h = metrics["mini_h"]
+        self._bar = _RoundedCard(
+            self.card,
+            bg=C["surface"],
+            border=None,
+            radius=10,
+            corners=(True, True, False, False),
+            border_sides=(False, False, False, False),
+        )
+        self._bar.setFixedHeight(self._topbar_h)
         bar = self._bar
-        h=QHBoxLayout(bar); h.setContentsMargins(8,0,10,0); h.setSpacing(8)
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(8, 0, 10, 0)
+        h.setSpacing(8)
 
         # 앱 아이콘
         self._icon_lbl = QLabel()
@@ -3503,10 +4379,11 @@ class Overlay(QWidget):
         self._mini_icon_lbl.hide()
 
         self._mini_char_lbl = QLabel("", bar)
-        self._mini_char_lbl.setFont(QFont("Noto Sans KR", 9, QFont.Weight.Bold))
+        self._mini_char_lbl.setFont(QFont("Noto Sans KR", 10, QFont.Weight.Bold))
         self._mini_char_lbl.setStyleSheet(f"color:{C['text']};background:transparent;")
+        self._mini_char_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._mini_char_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self._mini_char_lbl.setGeometry(36, 0, 107, 38)  # 아이콘(22) + 간격(6) = x:36
+        self._mini_char_lbl.setGeometry(36, 0, 107, self._topbar_h)  # 아이콘(22) + 간격(6) = x:36
         self._mini_char_lbl.hide()
 
         self._mini_ode_lbl = QLabel("", bar)
@@ -3514,31 +4391,30 @@ class Overlay(QWidget):
         self._mini_ode_lbl.setStyleSheet(f"color:#4dbd74;background:transparent;")
         self._mini_ode_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._mini_ode_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self._mini_ode_lbl.setGeometry(143, 0, 44, 38)
+        self._mini_ode_lbl.setGeometry(143, 0, 44, self._topbar_h)
         self._mini_ode_lbl.hide()
 
-        # ── 버튼 3개: bar 기준 절대 위치 고정 ──
-        def _mk_btn(text, x):
+        # ── 버튼 3개: 우측 기준 재배치 ──
+        def _mk_btn(text, accent=None):
             b = QPushButton(text, bar)
-            b.setFixedSize(26, 20)
-            b.move(x, 9)
-            b.setStyleSheet(_sbtn(C["accent"]) + "QPushButton{padding:0;}")
+            b.setFixedSize(24, 20)
+            b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setFont(QFont("Noto Sans KR", 10, QFont.Weight.Bold))
+            b.setStyleSheet(self._topbar_btn_style(accent or C["accent"]))
             return b
 
         # 최소화 버튼
-        self._btn_minimize = _mk_btn("−", 249)
+        self._btn_minimize = _mk_btn("−")
         self._btn_minimize.clicked.connect(self._toggle_minimize)
 
         # 오드 동기화 버튼
-        self._btn_sync_ode = _mk_btn("↻", 219)
+        self._btn_sync_ode = _mk_btn("↻", "#4dbd74")
         self._btn_sync_ode.setToolTip("게임 오드값 OCR 동기화")
         self._btn_sync_ode.clicked.connect(self._sync_ode_from_game)
 
         # 확장 버튼
-        self._btn_expand = _mk_btn("▷", 189)
-        self._btn_expand.setStyleSheet(
-            _sbtn(C["accent"]) + "QPushButton{padding:0;font-size:11px;}"
-        )
+        self._btn_expand = _mk_btn("▷")
         self._btn_expand.clicked.connect(self._toggle_summary)
 
         # ── 설정·관리 버튼 (우클릭 메뉴용) ──
@@ -3549,11 +4425,135 @@ class Overlay(QWidget):
         bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         bar.customContextMenuRequested.connect(self._show_topbar_menu)
 
-        self._topbar_h = 38   # 드래그 판별용 탑바 높이
+        self._layout_topbar_controls()
         self._vb.addWidget(bar)
 
+    def _topbar_btn_style(self, accent):
+        return f"""
+            QPushButton {{
+                color:{C['text_dim']};
+                background:transparent;
+                border:1px solid {C['border2']};
+                border-radius:4px;
+                padding:0;
+                margin:0;
+                text-align:center;
+                font-family:'Noto Sans KR';
+            }}
+            QPushButton:hover {{
+                color:{accent};
+                border-color:{accent};
+                background:{accent}22;
+            }}
+            QPushButton:disabled {{
+                color:{C['text_muted']}77;
+                border-color:{C['border']}77;
+                background:transparent;
+            }}
+        """
+
+    def _layout_topbar_controls(self):
+        if not hasattr(self, "_bar"):
+            return
+        scale = _ui_scale_factor(self.state)
+        metrics = self._topbar_metrics(scale)
+        bar_h = self._bar.height() or (self._mini_topbar_h if getattr(self, "_is_mini", False) else self._topbar_h)
+        bar_w = self._bar.width() or self.MODE_LEFT_W
+        btn_w = metrics["btn_w"]
+        btn_h = metrics["btn_h"]
+        gap = metrics["btn_gap"]
+        right_pad = metrics["right_pad"]
+        btn_y = max(0, (bar_h - btn_h) // 2)
+
+        x = bar_w - right_pad - btn_w
+        for btn in (self._btn_minimize, self._btn_sync_ode, self._btn_expand):
+            btn.setFixedSize(btn_w, btn_h)
+            btn.move(x, btn_y)
+            x -= btn_w + gap
+
+        icon_x = metrics["icon_x"]
+        icon_sz = metrics["icon_sz"]
+        if hasattr(self, "_mini_icon_lbl"):
+            self._mini_icon_lbl.setGeometry(icon_x, max(0, (bar_h - icon_sz) // 2), icon_sz, icon_sz)
+
+        label_gap = metrics["label_gap"]
+        char_x = icon_x + icon_sz + label_gap
+        right_anchor = self._btn_sync_ode.x() - label_gap
+        ode_min_w = metrics["mini_ode_min_w"]
+        ode_x = max(char_x + metrics["mini_char_min_w"] + metrics["mini_label_gap"], right_anchor - ode_min_w)
+        ode_w = max(ode_min_w, right_anchor - ode_x)
+        char_w = max(metrics["mini_char_min_w"], ode_x - char_x - metrics["mini_label_gap"])
+        if hasattr(self, "_mini_char_lbl"):
+            self._mini_char_lbl.setGeometry(char_x, 0, char_w, bar_h)
+        if hasattr(self, "_mini_ode_lbl"):
+            self._mini_ode_lbl.setGeometry(ode_x, 0, ode_w, bar_h)
+
+    def _topbar_metrics(self, scale=None):
+        scale = _ui_scale_factor(self.state) if scale is None else scale
+        frame_h = _scaled(36, scale)
+        return {
+            "frame_h": frame_h,
+            "mini_h": frame_h,
+            "btn_w": _scaled(24, scale),
+            "btn_h": _scaled(20, scale),
+            "btn_gap": _scaled(4, scale),
+            "right_pad": _scaled(10, scale),
+            "icon_x": _scaled(8, scale),
+            "icon_sz": _scaled(22, scale),
+            "label_gap": _scaled(8, scale),
+            "mini_char_min_w": _scaled(58, scale),
+            "mini_ode_min_w": _scaled(42, scale),
+            "mini_label_gap": _scaled(4, scale),
+        }
+
+    def _apply_topbar_frame(self, *, adjust_window=False):
+        if not hasattr(self, "card") or not hasattr(self, "_bar"):
+            return
+        mini = bool(getattr(self, "_is_mini", False))
+        topbar_h = self._mini_topbar_h if mini else self._topbar_h
+        inner_w = max(1, self.MODE_LEFT_W - 2)
+
+        self.card.setFixedWidth(self.MODE_LEFT_W)
+        self.card.set_frame_style(
+            bg=C["surface"] if mini else C["bg"],
+            border=C["border"],
+            corners=(True, True, True, True),
+            border_sides=(True, True, True, True),
+        )
+        self._vb.setContentsMargins(1, 1, 1, 1)
+
+        # 탑바는 full 모드에서는 표면만, mini 모드에서는 투명 호스트로만 사용한다.
+        self._bar.setFixedWidth(inner_w)
+        self._bar.setFixedHeight(topbar_h)
+        self._bar.set_frame_style(
+            bg=QColor(0, 0, 0, 0) if mini else C["surface"],
+            border=None,
+            corners=(True, True, True, True) if mini else (True, True, False, False),
+            border_sides=(False, False, False, False),
+        )
+
+        if hasattr(self, "_crow"):
+            self._crow.setMaximumWidth(inner_w if not mini else 0)
+        if hasattr(self, "_content_widget"):
+            self._content_widget.setVisible(not mini)
+            self._content_widget.setMinimumHeight(0)
+            self._content_widget.setMaximumHeight(0 if mini else 16777215)
+
+        self.setFixedWidth(self.MODE_LEFT_W)
+        if mini:
+            self.setFixedHeight(topbar_h + 2)
+        else:
+            self.setMinimumHeight(0)
+            self.setMaximumHeight(16777215)
+            if adjust_window:
+                QTimer.singleShot(0, self._adj_height)
+
+        self._layout_topbar_controls()
+
     # ── 모드 전환 ──
-    MODE_LEFT_W = 285
+    MODE_LEFT_W = BASE_LEFT_W
+    MINI_FRAME_PAD = 0
+    SUMMARY_GAP = 2
 
     def _toggle_summary(self):
         if self._summary_win and self._summary_win.isVisible():
@@ -3569,11 +4569,11 @@ class Overlay(QWidget):
         self._summary_win = _SummaryWindow(self.state, self.active_char)
         self._summary_win.char_selected.connect(self._on_summary_char_select)
         self._summary_win.closed.connect(self._on_summary_win_closed)
-        self._summary_win._sv.check_toggled.connect(self._on_summary_toggle)
+        self._summary_win.check_toggled.connect(self._on_summary_toggle)
         # show() 전에 위치/높이를 미리 지정 — OS가 show() 시점에 덮어쓰는 것을 방지
         p = self.pos()
         self._summary_win.snap_height(self.height())
-        self._summary_win.move(p.x() + self.width() + 4, p.y())
+        self._summary_win.move(p.x() + self.width() + self.SUMMARY_GAP, p.y())
         self._summary_win.show()
         self._summary_win.setWindowOpacity(self.state.get("opacity", 100) / 100)
         # show() 후 OS 재배치에 대비해 한 프레임 뒤에 한 번 더 snap
@@ -3582,19 +4582,6 @@ class Overlay(QWidget):
     def _on_summary_win_closed(self):
         self._summary_win = None
         self._upd_mode_btns()
-
-    def _snap_summary_win(self):
-        """요약창을 메인 창 우측에 snap, 높이를 메인 창에 맞춤."""
-        if not self._summary_win:
-            return
-        p = self.pos()
-        target_x = p.x() + self.width() + 4
-        target_y = p.y()
-        # 높이 먼저 고정
-        self._summary_win.snap_height(self.height())
-        # 높이 변경 후 OS가 위치를 재조정할 수 있으므로 move를 두 번 호출
-        self._summary_win.move(target_x, target_y)
-        QTimer.singleShot(0, lambda: self._summary_win.move(target_x, target_y) if self._summary_win else None)
 
     def _apply_layout(self): pass
 
@@ -3610,23 +4597,20 @@ class Overlay(QWidget):
         smr_on = bool(self._summary_win and self._summary_win.isVisible())
         self._btn_expand.setText("◁" if smr_on else "▷")
         if smr_on:
-            self._btn_expand.setStyleSheet(_sbtn(C["gold"]) + "QPushButton{padding:0;font-size:11px;}")
+            self._btn_expand.setStyleSheet(self._topbar_btn_style(C["gold"]))
         else:
-            self._btn_expand.setStyleSheet(_sbtn(C["accent"]) + "QPushButton{padding:0;font-size:11px;}")
+            self._btn_expand.setStyleSheet(self._topbar_btn_style(C["accent"]))
 
     def _build_char_row(self):
         self._crow = QWidget(); self._crow.setFixedHeight(36)
+        self._crow.setMaximumWidth(self.MODE_LEFT_W)
         self._crow.setStyleSheet(f"border-bottom:1px solid {C['border']};")
         self._ch = QHBoxLayout(self._crow)
         self._ch.setContentsMargins(6, 0, 6, 0); self._ch.setSpacing(6)
 
-        # 서버 드롭다운
-        self._srv_combo = QComboBox()
-        self._srv_combo.setFixedSize(75, 24)
-        self._srv_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        self._srv_combo.setFont(QFont("Noto Sans KR", 10))
-        self._srv_combo.setStyleSheet(self._combo_style(C["gold"]))
-        self._srv_combo.currentIndexChanged.connect(self._on_srv_combo_changed)
+        self._srv_combo = _SelectButton(C["gold"], min_chars=4)
+        self._srv_combo.setFixedWidth(75)
+        self._srv_combo.changed.connect(self._on_srv_combo_changed)
         self._ch.addWidget(self._srv_combo)
 
         # 구분선
@@ -3634,98 +4618,77 @@ class Overlay(QWidget):
         self._sep.setStyleSheet(f"color:{C['border2']};"); self._sep.setFixedWidth(1)
         self._ch.addWidget(self._sep)
 
-        # 캐릭터 드롭다운
-        self._char_combo = QComboBox()
-        self._char_combo.setFixedHeight(24)
-        self._char_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        self._char_combo.setFont(QFont("Noto Sans KR", 10))
-        self._char_combo.setStyleSheet(self._combo_style(C["accent"]))
-        self._char_combo.currentIndexChanged.connect(self._on_char_combo_changed)
+        self._char_combo = _SelectButton(C["accent"], min_chars=8)
+        self._char_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._char_combo.changed.connect(self._on_char_combo_changed)
         self._ch.addWidget(self._char_combo, 1)
 
         self._cvb.addWidget(self._crow)
 
-    def _combo_style(self, color):
-        return f"""
-            QComboBox {{
-                color:{color}; background:{C['surface2']};
-                border:1px solid {C['border2']}; border-radius:5px;
-                padding:0 20px 0 8px;
-                font-family:'Noto Sans KR'; font-size:10px;
-            }}
-            QComboBox:hover {{ border-color:{color}88; }}
-            QComboBox::drop-down {{
-                subcontrol-origin:padding; subcontrol-position:right center;
-                width:18px; border:none; background:transparent;
-            }}
-            QComboBox::down-arrow {{
-                image:none;
-                width:0; height:0;
-            }}
-            QComboBox QAbstractItemView {{
-                background:{C['surface2']}; color:{C['text']};
-                border:1px solid {C['border2']};
-                selection-background-color:{color}22;
-                font-family:'Noto Sans KR'; font-size:10px; padding:2px;
-                outline:0;
-            }}
-        """
+    def _apply_combo_fonts(self):
+        combo_size = _scaled_font_size(10, _ui_scale_factor(self.state))
+        popup_font = QFont("Noto Sans KR")
+        popup_font.setPointSizeF(max(1.0, combo_size))
+        self._srv_combo.set_popup_font(popup_font)
+        self._char_combo.set_popup_font(popup_font)
 
     def _render_chars(self):
+        valid_chars = []
+        seen_chars = set()
+        for value in self.state.get("chars", []):
+            if not isinstance(value, str):
+                continue
+            name = value.strip()
+            if not name or name in seen_chars:
+                continue
+            seen_chars.add(name)
+            valid_chars.append(name)
+        if valid_chars != self.state.get("chars", []):
+            self.state["chars"] = valid_chars
+            if self.active_char not in valid_chars and valid_chars:
+                self.active_char = valid_chars[0]
+            save_state(self.state)
+
         # ── 서버 목록 추출 ──
         seen = []; servers = []
-        for c in self.state["chars"]:
-            srv = self.state.get("servers", {}).get(c, "")
+        for c in valid_chars:
+            srv = (self.state.get("servers", {}).get(c, "") or "").strip()
             if srv and srv not in seen:
                 seen.append(srv); servers.append(srv)
 
         # ── 서버 드롭다운 갱신 ──
-        self._srv_combo.blockSignals(True)
-        self._srv_combo.clear()
         if servers:
-            for s in servers:
-                self._srv_combo.addItem(s, s)
-            # active_server가 None(전체)이면 첫 서버로 초기화
-            if self.active_server is None:
+            if self.active_server not in servers:
                 self.active_server = servers[0]
-            idx = 0
-            for i in range(self._srv_combo.count()):
-                if self._srv_combo.itemData(i) == self.active_server:
-                    idx = i; break
-            self._srv_combo.setCurrentIndex(idx)
+            self._srv_combo.set_items([(s, s) for s in servers])
+            self._srv_combo.set_current_data(self.active_server)
             self._srv_combo.setVisible(True)
             self._sep.setVisible(True)
         else:
+            self.active_server = None
+            self._srv_combo.set_items([])
             self._srv_combo.setVisible(False)
             self._sep.setVisible(False)
-        self._srv_combo.blockSignals(False)
 
         # ── 캐릭터 드롭다운 갱신 ──
         visible_chars = [
-            c for c in self.state["chars"]
+            c for c in valid_chars
             if self.active_server is None or
-               self.state.get("servers", {}).get(c, "") == self.active_server
+               (self.state.get("servers", {}).get(c, "") or "").strip() == self.active_server
         ]
-        if visible_chars and self.active_char not in visible_chars:
-            self.active_char = visible_chars[0]
+        if self.active_char not in visible_chars:
+            self.active_char = visible_chars[0] if visible_chars else None
 
-        self._char_combo.blockSignals(True)
-        self._char_combo.clear()
-        for c in visible_chars:
-            self._char_combo.addItem(c, c)
-        # active_char 반영
-        for i in range(self._char_combo.count()):
-            if self._char_combo.itemData(i) == self.active_char:
-                self._char_combo.setCurrentIndex(i); break
-        self._char_combo.blockSignals(False)
+        self._char_combo.set_items([(c, c) for c in visible_chars])
+        self._char_combo.set_current_data(self.active_char)
+        self._apply_combo_fonts()
 
-    def _on_srv_combo_changed(self, idx):
-        self.active_server = self._srv_combo.itemData(idx)
+    def _on_srv_combo_changed(self, key):
+        self.active_server = key
         self._render_chars()
         self._render_tasks()
 
-    def _on_char_combo_changed(self, idx):
-        key = self._char_combo.itemData(idx)
+    def _on_char_combo_changed(self, key):
         if key and key != self.active_char:
             self.active_char = key
             self._render_tasks()
@@ -3749,6 +4712,9 @@ class Overlay(QWidget):
         p0v = QVBoxLayout(self._page0)
         p0v.setContentsMargins(0,2,0,2); p0v.setSpacing(0)
         self._p0v = p0v
+        self._kina_panel = None
+        self._ode_panel = None
+        self._p0_divider = None
         self._stack.addWidget(self._page0)
 
         # 페이지 1: 컨텐츠 체크리스트
@@ -3760,27 +4726,37 @@ class Overlay(QWidget):
         self._cvb.addWidget(self._stack, 0)
         self._page_idx = 0
 
+    def _ensure_page0_panels(self):
+        if self._kina_panel is None:
+            srv = self.state.get("servers", {}).get(self.active_char, "") or "공통"
+            self._kina_panel = KinaPanel(self.state, srv, self)
+            self._kina_panel.changed.connect(lambda: save_state(self.state))
+            self._p0v.addWidget(self._kina_panel)
+
+        if self._p0_divider is None:
+            div = QFrame()
+            div.setFrameShape(QFrame.Shape.HLine)
+            div.setStyleSheet(f"color:{C['border']};margin:0 8px;")
+            self._p0_divider = div
+            self._p0v.addWidget(div)
+
+        if self._ode_panel is None:
+            self._ode_panel = OdePanel(self.state, self.active_char)
+            self._ode_panel.changed.connect(lambda: save_state(self.state))
+            self._p0v.addWidget(self._ode_panel)
 
 
 
     def _render_tasks(self):
         # ── 페이지 0: 키나 획득률 + 오드 에너지 ──
-        while self._p0v.count():
-            it = self._p0v.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-
+        self._ensure_page0_panels()
         srv = self.state.get("servers", {}).get(self.active_char, "") or "공통"
-        self._kina_panel = KinaPanel(self.state, srv, self)
-        self._kina_panel.changed.connect(lambda: save_state(self.state))
-        self._p0v.addWidget(self._kina_panel)
-
-        div = QFrame(); div.setFrameShape(QFrame.Shape.HLine)
-        div.setStyleSheet(f"color:{C['border']};margin:0 8px;")
-        self._p0v.addWidget(div)
-
-        self._ode_panel = OdePanel(self.state, self.active_char)
-        self._ode_panel.changed.connect(lambda: save_state(self.state))
-        self._p0v.addWidget(self._ode_panel)
+        self._kina_panel.state = self.state
+        self._kina_panel.server_name = srv
+        self._kina_panel.refresh()
+        self._ode_panel.state = self.state
+        self._ode_panel.char_key = self.active_char
+        self._ode_panel.refresh()
 
         # ── 페이지 1: 컨텐츠 체크리스트 ──
         while self._cvb1.count():
@@ -3835,10 +4811,16 @@ class Overlay(QWidget):
         if self._summary_win:
             self._summary_win.refresh(self.state, self.active_char)
 
-    def _on_summary_toggle(self, char, tid):
+    def _on_summary_toggle(self, key, tid):
         save_state(self.state)
-        if char == self.active_char:
+        if key == self.active_char:
             self._render_tasks()
+        else:
+            active_srv = _server_name_key(self.state.get("servers", {}).get(self.active_char, ""))
+            if key == active_srv:
+                self._render_tasks()
+        if self._summary_win and self._summary_win.isVisible():
+            self._summary_win.refresh(self.state, self.active_char)
 
     # ── Actions ──
     def _on_toggle(self, tid):
@@ -3925,8 +4907,8 @@ class Overlay(QWidget):
     def _toggle_minimize(self):
         self._is_mini = not getattr(self, "_is_mini", False)
         vis = not self._is_mini
-        for w in [self._crow]:
-            w.setVisible(vis)
+        self._crow.setVisible(vis)
+        self._crow.setMaximumWidth(max(1, self.MODE_LEFT_W - 2) if vis else 0)
         if not vis:
             self._srv_combo.setVisible(False)
         else:
@@ -3941,13 +4923,10 @@ class Overlay(QWidget):
             btn.setVisible(vis)
 
         # 콘텐츠 숨김/표시
-        self._content_widget.setVisible(vis)
         if not vis:
-            # 최소화 시 부속 창들도 숨김
             if self._summary_win and self._summary_win.isVisible():
                 self._summary_win.hide()
         else:
-            # 복원 시 부속 창들도 다시 표시
             if self._summary_win:
                 self._summary_win.show()
                 self._snap_summary_win()
@@ -3960,20 +4939,13 @@ class Overlay(QWidget):
             self._upd_mini_labels()
 
         self._btn_minimize.setText("+" if not vis else "−")
-        # 최소화 시 탑바 단독 표시 → 하단도 라운딩
-        self._bar._bottom = not vis
-        self._bar.update()
+        self._apply_topbar_frame(adjust_window=True)
 
         if vis:
-            self.setMaximumSize(16777215, 16777215)
-            self._left_widget.setFixedWidth(self.MODE_LEFT_W)
-            QTimer.singleShot(0, self._adj_height)
+            self._set_game_polling_active(False)
             self._upd_mode_btns()
         else:
-            self.setMaximumSize(16777215, 16777215)
-            self._left_widget.setFixedWidth(self.MODE_LEFT_W)
-            self.setFixedWidth(self.MODE_LEFT_W)
-            self.setFixedHeight(self._topbar_h)
+            self._set_game_polling_active(True)
         if not vis:  # 최소화 전환 시점에 1회 즉시 감지
             self._poll_game_window()
 
@@ -3987,22 +4959,37 @@ class Overlay(QWidget):
 
     def _show_topbar_menu(self, pos):
         from PyQt6.QtWidgets import QMenu
+        scale = _ui_scale_factor(self.state)
+        menu_font_size = _scaled_font_size(10, scale)
+        menu_radius = _scaled(6, scale)
+        menu_padding = _scaled(3, scale)
+        item_pad_v = _scaled(5, scale)
+        item_pad_r = _scaled(14, scale)
+        item_pad_l = _scaled(10, scale)
+        item_radius = _scaled(4, scale)
+        item_min_w = _scaled(90, scale)
+        sep_margin_v = _scaled(3, scale)
+        sep_margin_h = _scaled(8, scale)
+
         menu = QMenu(self)
+        menu_font = QFont("Noto Sans KR")
+        menu_font.setPointSizeF(max(1.0, menu_font_size))
+        menu.setFont(menu_font)
         menu.setStyleSheet(f"""
             QMenu {{
                 background:{C['surface2']}; color:{C['text']};
-                border:1px solid {C['border2']}; border-radius:6px;
-                padding:3px; font-family:'Noto Sans KR'; font-size:10px;
+                border:1px solid {C['border2']}; border-radius:{menu_radius}px;
+                padding:{menu_padding}px; font-family:'Noto Sans KR'; font-size:{menu_font_size}px;
             }}
             QMenu::item {{
-                padding:5px 14px 5px 10px;
-                border-radius:4px; min-width:90px;
+                padding:{item_pad_v}px {item_pad_r}px {item_pad_v}px {item_pad_l}px;
+                border-radius:{item_radius}px; min-width:{item_min_w}px;
             }}
             QMenu::item:selected {{
                 background:{C['accent_dim']}; color:{C['accent']};
             }}
             QMenu::separator {{
-                height: 1px; background: {C['border']}; margin: 3px 8px;
+                height: 1px; background: {C['border']}; margin: {sep_margin_v}px {sep_margin_h}px;
             }}
         """)
         act_settings = menu.addAction("설정")
@@ -4056,9 +5043,8 @@ class Overlay(QWidget):
             p=self.pos(); self.state["overlay_pos"]=[p.x(),p.y()]; save_state(self.state)
         self._drag_pos=None
 
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        self._apply_card_mask()
+    def _on_overlay_resized(self):
+        self._layout_topbar_controls()
         self._snap_summary_win()
 
     def moveEvent(self, e):
@@ -4066,18 +5052,23 @@ class Overlay(QWidget):
         self._snap_summary_win()
 
     def _snap_summary_win(self):
-        """요약창을 메인 창 바로 아래, 좌측 정렬."""
+        """요약창을 메인 창 우측에 snap, 높이를 메인 창에 맞춤."""
         if self._summary_win and self._summary_win.isVisible():
             p = self.pos()
-            self._summary_win.move(p.x() + self.width() + 4, p.y())
+            target_x = p.x() + self.width() + self.SUMMARY_GAP
+            target_y = p.y()
+            self._summary_win.snap_height(self.height())
+            self._summary_win.move(target_x, target_y)
+            QTimer.singleShot(0, lambda: self._summary_win.move(target_x, target_y) if self._summary_win else None)
 
     def _apply_card_mask(self):
-        pass  # _RoundedCard handles painting directly; no mask needed
+        pass  # outer shell handles painting directly; no mask needed
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
             y = e.position().y(); x = e.position().x()
-            in_topbar_y = y <= self._topbar_h
+            topbar_h = self._mini_topbar_h if getattr(self, "_is_mini", False) else self._topbar_h
+            in_topbar_y = y <= topbar_h
             in_topbar_x = x <= self.MODE_LEFT_W
             if in_topbar_y and in_topbar_x:
                 self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -4091,12 +5082,21 @@ class Overlay(QWidget):
 
     # ── Timers ──
     def _start_timers(self):
-        # 게임 창 타이틀 폴링 (3초마다)
-        self._poll_tmr = QTimer(); self._poll_tmr.timeout.connect(self._poll_game_window)
-        self._poll_tmr.start(3000)
+        self._poll_tmr = QTimer(self)
+        self._poll_tmr.timeout.connect(self._poll_game_window)
+        self._poll_tmr.setInterval(3000)
+
+    def _set_game_polling_active(self, active):
+        if not getattr(self, "_poll_tmr", None):
+            return
+        if active:
+            if not self._poll_tmr.isActive():
+                self._poll_tmr.start()
+        else:
+            self._poll_tmr.stop()
 
     def _poll_game_window(self):
-        """Aion2.exe 창에서 캐릭터명을 감지해 현재 캐릭터를 자동 선택."""
+        """미니모드에서만 게임 창을 감지해 활성 캐릭터를 동기화."""
         try:
             info = _find_aion2_window_info()
         except Exception:
@@ -4107,29 +5107,23 @@ class Overlay(QWidget):
 
         if info["hwnd"]:
             self._game_hwnd = info["hwnd"]
+        if not getattr(self, "_is_mini", False):
+            return
 
         char_name = info["char_name"]
         if not char_name:
-            return   # 파싱 실패 → 조용히 무시
-
-        # ── 캐릭터 목록 대조 ──
+            return
         chars = self.state.get("chars", [])
-        if char_name not in chars:
-            return   # 등록된 캐릭터 아님 → 무시
+        if char_name not in chars or char_name == self.active_char:
+            return
 
-        if char_name == self.active_char:
-            return   # 이미 선택됨
-
-        # ── 자동 선택 ──
         self.active_char = char_name
         srv = self.state.get("servers", {}).get(char_name, "")
         if srv and srv != self.active_server:
             self.active_server = srv
         self._render_chars()
         self._render_tasks()
-        # if self._is_mini:
         self._upd_mini_labels()
-        # 요약창이 열려있으면 해당 캐릭터로 갱신
         if self._summary_win:
             self._summary_win.refresh(self.state, self.active_char)
     def update_all_logic(self):
@@ -4174,10 +5168,10 @@ class Overlay(QWidget):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        _apply_rounded_mask(self)
+        self._on_overlay_resized()
 
     def _update_mask(self):
-        _apply_rounded_mask(self)
+        pass
 
     def closeEvent(self, e):
         self._set_global_hotkeys_active(False)
