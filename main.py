@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QScrollArea, QFrame, QInputDialog,
     QMessageBox, QSlider, QCheckBox, QLineEdit, QDialog,
-    QTabWidget, QGroupBox, QSizePolicy, QStackedWidget,
+    QTabWidget, QSizePolicy,
     QListWidget, QListWidgetItem, QMenu,
 )
 from PyQt6.QtCore import Qt, QPoint, QTimer, QSize, pyqtSignal, pyqtSlot, QPointF, QEvent
@@ -40,7 +40,7 @@ from PyQt6.QtGui import (
 _ODE_ICON_B64  = "/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAuABwDASIAAhEBAxEB/8QAHAAAAQQDAQAAAAAAAAAAAAAACAIFBgcAAQME/8QALRAAAgEDAwEHAwUBAAAAAAAAAQIDBAURBhIhAAcTFDFBUWEIIjIjJFJxgfD/xAAWAQEBAQAAAAAAAAAAAAAAAAADBQT/xAAjEQACAgIBAwUBAAAAAAAAAAABAgADBBEhBTFBEiKBkaHR/9oADAMBAAIRAxEAPwAQNuF9uuwU7R88dajRpJAijk8Y9+rf7Iuy+tuFVHqO9U80Nko+7m3NAdlUd4HdgkEc8A8HzGRjJAXWipSzdpoRGc6EjFn7K9YXTTkV9pqAeFkSRwrEiQIq7lYL5nvCGVQMklecAqTB3UoxVhtI8x7Ho99YiSx2KCCYFqipVXq0kCmJiucKGZmJ2gKoCnnAJ5yQEWt44oNY3iBIVhWKtmQRqoUIA5GABwAPb06x4OY97MGEW+kVjiSf6f8AStt1Tr+moruWNOrRv3KgjxBM0abGYcqpD5JGDweQcHohtD2rXesu0ulqWprbS0lJRK1KhMkVPboc7I0iEa43r+YTKhtrcrjiq/pUt1PUVt9qh38ddT0TvTTRvgRkQzSZI9TvijP9KRjnIJXR9yo9HWOqrl2Grlwqoyr977ARllCl0UZ2k4OCf8r4qVPTkWWgEAADf2fyQ+o9RONlY+Ovdtn+Ty6j0/eZKLVdonqEqWt8sMoqXp1jEqeGhcgA7iAGVsKD7/dxggdqalmpdR3KmqapqqeKrlSWdiSZWDkFiTycnnnou9X6weGnr71dbzPBTxk+NrMDgumBTxou0SSuqkBc8AMSVVWaMRtSXCK6aguFygp3p4qqpkmSKSQSMgZiQrMFUMRnk7Rk+g6idOId3sRdKda+Jdv4VVY+7zLN+nO+1FqvN2pKeFZHqaFguc+Z/T9PiVjkEfiP8luodd2i0LU1Nw1C9Zcni2JTUYEjKcOVy2e7QBwFIB3LvyFbnA+SHAAAwMc/P/Y6SQxVnDH1Oc+o+OnfDFjlmJ0eSPyGHCgH0jY435jtqrU101FJEa+b9vT7hBTISI492NxA/kcLk+Z2geSrhl9v69sdKIXbgDj06wLkZ61qAqhR2hkknZn/2Q=="
 _PLUS_ICON_B64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAqACADASIAAhEBAxEB/8QAGgAAAgMBAQAAAAAAAAAAAAAABAUBBgcDCP/EACkQAAEDAwMDBAIDAAAAAAAAAAECAwQABREGIVESMWEHEyJBMnFSgZH/xAAYAQADAQEAAAAAAAAAAAAAAAABAgMABP/EABoRAQEBAQEBAQAAAAAAAAAAAAEAESECAxL/2gAMAwEAAhEDEQA/APIjSvd2V9d8UXEhPTJSGGkdZP8AgHJoO3RpMqWhmKgqcUf6A5Pin8uYiCwqFCKVKIw88B+R4HipPl3lU9mdgZseRGfMdxvpUj6+scjxQrh79Z34Ham0aU3PjpgzVBCgMMv/AMfB8UmmxJkWSph9PQoH67Ec54ofnJz6CTeQtu2Mrt8MkuHZ97GCo8DxWiej/pPrW8X3S+pUadblafcuLDzrrklgpWyl4BzLal9RGEq2xvwazuM8i9NhpwpRcEj4qOweA+j5onRNxYsOurHdp6HQxbrnHkvpQnK+lt1KlAA9zgGqlzte/WD0m1rZ77qjUq9OtxdPt3GQ8063JY6UsqeIbw2lfUBhSdsbcCs/gSGZ8dFum59wfFh3GSnwfFd9a3Bm/a5vl2gIdLFxuciSwlacL6XHVKTkc4IoKW8ixoLbZSu4KHyUNwyOP3QceMTTpIUqKVBQJBByCPqn0d9F6bDTpSi4pGEqOweHB81X6gKKVBSSQQcgg7isWe1lW+3ZWy0ghyeR8yN/ZHjzSOQ42olRIWSc5Pc1xaUpT3Uokk7kk96hf5j90uazjhf/2Q=="
 
-_OCR_DEBUG_ENABLED = True
+_OCR_DEBUG_ENABLED = False
 
 def _app_base_dir():
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -752,17 +752,17 @@ ODE_COST      = 80
 
 KINA_STEPS = {
     "jeongbok": [
-        {"label":"100%","max":84,       "color":"#64dca0"},
-        {"label":"80%", "max":105,      "color":"#60c8ff"},
-        {"label":"60%", "max":126,      "color":"#ffe566"},
-        {"label":"40%", "max":147,      "color":"#ffaa44"},
+        {"label":"100%","max":63,       "color":"#64dca0"},
+        {"label":"80%", "max":77,      "color":"#60c8ff"},
+        {"label":"60%", "max":91,      "color":"#ffe566"},
+        {"label":"40%", "max":105,      "color":"#ffaa44"},
         {"label":"20%", "max":float("inf"),"color":"#ff6060"},
     ],
     "choweol": [
-        {"label":"100%","max":56,       "color":"#64dca0"},
-        {"label":"80%", "max":70,       "color":"#60c8ff"},
-        {"label":"60%", "max":84,       "color":"#ffe566"},
-        {"label":"40%", "max":98,       "color":"#ffaa44"},
+        {"label":"100%","max":42,       "color":"#64dca0"},
+        {"label":"80%", "max":49,       "color":"#60c8ff"},
+        {"label":"60%", "max":56,       "color":"#ffe566"},
+        {"label":"40%", "max":63,       "color":"#ffaa44"},
         {"label":"20%", "max":float("inf"),"color":"#ff6060"},
     ],
 }
@@ -3353,17 +3353,17 @@ class _SelectButton(QPushButton):
         self._arrow.setStyleSheet(f"color:{text_color};background:transparent;border:none;")
 
     def _sync_text_label(self):
-        left_pad = 8
-        right_pad = 24
+        left_pad = max(8, self.height() // 3)
+        right_pad = max(24, self.height() - 4)
         available_w = max(10, self.width() - left_pad - right_pad)
         metrics = self._text_label.fontMetrics()
         display = metrics.elidedText(self._current_label or "", Qt.TextElideMode.ElideRight, available_w)
         self._text_label.setText(display)
 
     def _layout_contents(self):
-        left_pad = 8
-        right_pad = 6
-        arrow_w = max(14, self.fontMetrics().horizontalAdvance("▾") + 2)
+        left_pad = max(8, self.height() // 3)
+        right_pad = max(6, self.height() // 4)
+        arrow_w = max(14, self.fontMetrics().horizontalAdvance("▾") + max(2, self.height() // 8))
         self._arrow.setGeometry(self.width() - arrow_w - right_pad, 0, arrow_w, self.height())
         text_right = self._arrow.x() - 4
         self._text_label.setGeometry(left_pad, 0, max(10, text_right - left_pad), self.height())
@@ -4130,6 +4130,7 @@ class Overlay(QWidget):
         self._sync_hotkey_str = ""
         self._last_hk_time = 0
         self._last_sync_hk_time = 0
+        self._screen_hook_handle = None
         self._hotkey_signal.connect(self._toggle_visibility)
         self._ode_sync_result_signal.connect(self._apply_ode_result)
         self._sync_hotkey_signal.connect(self._sync_ode_from_hotkey)
@@ -4214,6 +4215,27 @@ class Overlay(QWidget):
         self._sync_hotkey_str = self.state.get("sync_hotkey", "Ctrl+R")
         self._sync_hotkey_seq = QKeySequence(self._sync_hotkey_str)
         self._set_global_hotkeys_active(getattr(self, "_global_hotkeys_active", False))
+
+    def _bind_screen_change_hook(self):
+        handle = self.windowHandle()
+        if not handle or handle is self._screen_hook_handle:
+            return
+        handle.screenChanged.connect(self._on_screen_changed)
+        self._screen_hook_handle = handle
+
+    def _on_screen_changed(self, _screen=None):
+        # 모니터 간 이동(특히 DPI/배율 차이) 시 고정 치수와 레이아웃을 다시 계산한다.
+        QTimer.singleShot(0, self._refresh_after_screen_change)
+
+    def _refresh_after_screen_change(self):
+        self._apply_ui_scale()
+        if getattr(self, "_is_mini", False):
+            self._upd_mini_labels()
+        elif self._content_dirty:
+            self._render_tasks()
+        if self._summary_win:
+            self._summary_win.refresh(self.state, self.active_char)
+            self._snap_summary_win()
 
     def _set_global_hotkeys_active(self, active):
         active = bool(active)
@@ -4310,7 +4332,8 @@ class Overlay(QWidget):
 
         # 상태 초기화
         self._summary_win = None   # 요약 창
-        self._ui_mode = "A"
+        self._content_dirty = False
+        self._summary_resume_on_restore = False
 
         self._build_char_row()
         self._build_content_area()
@@ -4626,7 +4649,7 @@ class Overlay(QWidget):
         self._cvb.addWidget(self._crow)
 
     def _apply_combo_fonts(self):
-        combo_size = _scaled_font_size(10, _ui_scale_factor(self.state))
+        combo_size = _scaled_font_size(9, _ui_scale_factor(self.state))
         popup_font = QFont("Noto Sans KR")
         popup_font.setPointSizeF(max(1.0, combo_size))
         self._srv_combo.set_popup_font(popup_font)
@@ -4694,37 +4717,13 @@ class Overlay(QWidget):
             self._render_tasks()
 
     def _build_content_area(self):
-        # 현재 페이지 크기만 반환하는 커스텀 스택
-        class _SizedStack(QStackedWidget):
-            def sizeHint(self):
-                w = self.currentWidget()
-                return w.sizeHint() if w else super().sizeHint()
-            def minimumSizeHint(self):
-                w = self.currentWidget()
-                return w.minimumSizeHint() if w else super().minimumSizeHint()
-
-        self._stack = _SizedStack()
-        self._stack.setStyleSheet("background:transparent;")
-        self._stack.currentChanged.connect(lambda _: self._stack.updateGeometry())
-
-        # 페이지 0: 키나 획득률 + 오드 에너지
-        self._page0 = QWidget(); self._page0.setStyleSheet("background:transparent;")
-        p0v = QVBoxLayout(self._page0)
-        p0v.setContentsMargins(0,2,0,2); p0v.setSpacing(0)
-        self._p0v = p0v
+        # 메인 UI 본문은 키나/오드 패널만 유지한다.
+        self._cvb.setContentsMargins(0, 2, 0, 2)
+        self._cvb.setSpacing(0)
+        self._p0v = self._cvb
         self._kina_panel = None
         self._ode_panel = None
         self._p0_divider = None
-        self._stack.addWidget(self._page0)
-
-        # 페이지 1: 컨텐츠 체크리스트
-        self._page1 = QWidget(); self._page1.setStyleSheet("background:transparent;")
-        self._cvb1 = QVBoxLayout(self._page1)
-        self._cvb1.setContentsMargins(0,2,0,2); self._cvb1.setSpacing(0)
-        self._stack.addWidget(self._page1)
-
-        self._cvb.addWidget(self._stack, 0)
-        self._page_idx = 0
 
     def _ensure_page0_panels(self):
         if self._kina_panel is None:
@@ -4745,10 +4744,15 @@ class Overlay(QWidget):
             self._ode_panel.changed.connect(lambda: save_state(self.state))
             self._p0v.addWidget(self._ode_panel)
 
+    def _schedule_content_relayout(self):
+        if getattr(self, "_is_mini", False):
+            self._content_dirty = True
+            return
+        QTimer.singleShot(0, self._adj_height)
 
 
     def _render_tasks(self):
-        # ── 페이지 0: 키나 획득률 + 오드 에너지 ──
+        # 메인 UI 본문은 키나 획득률 + 오드 에너지 패널만 갱신한다.
         self._ensure_page0_panels()
         srv = self.state.get("servers", {}).get(self.active_char, "") or "공통"
         self._kina_panel.state = self.state
@@ -4757,49 +4761,8 @@ class Overlay(QWidget):
         self._ode_panel.state = self.state
         self._ode_panel.char_key = self.active_char
         self._ode_panel.refresh()
-
-        # ── 페이지 1: 컨텐츠 체크리스트 ──
-        while self._cvb1.count():
-            it = self._cvb1.takeAt(0)
-            if it.widget(): it.widget().deleteLater()
-        checks = self.state["checks"].get(self.active_char, {})
-        tasks  = self.state.get("tasks", [])
-        grp_info = {
-            "daily":     ("일간",  RESET_COLOR["daily"]),
-            "corridor":  ("회랑",  RESET_COLOR["corridor"]),
-            "directive": ("지령서",RESET_COLOR["directive"]),
-            "weekly":    ("주간",  RESET_COLOR["weekly"]),
-            "sanctuary": ("성역",  RESET_COLOR["sanctuary"]),
-        }
-        has_tasks = False
-        for rt in RT_ORDER:
-            rt_tasks = [t for t in tasks if t["reset"] == rt]
-            if not rt_tasks: continue
-            has_tasks = True
-            label, color = grp_info.get(rt, (rt, C["text_dim"]))
-            sl = QLabel(label.upper()); sl.setFont(QFont("Noto Sans KR",8,QFont.Weight.Medium))
-            sl.setStyleSheet(f"color:{color};letter-spacing:1.5px;padding:7px 14px 3px;")
-            self._cvb1.addWidget(sl)
-            for t in rt_tasks:
-                row = CheckRow(t, checks.get(t["id"], False))
-                row.toggled.connect(self._on_toggle); self._cvb1.addWidget(row)
-        if not has_tasks:
-            empty = QLabel("등록된 컨텐츠 없음")
-            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty.setStyleSheet(f"color:{C['text_muted']};font-size:9px;padding:20px 0;")
-            self._cvb1.addWidget(empty)
-
-        def _adj_and_log():
-            if self._ui_mode in ("A", "B", "S"):
-                self.setMinimumHeight(0)
-                self.setMaximumHeight(16777215)
-                self._left_widget.setMinimumHeight(0)
-                self._left_widget.setMaximumHeight(16777215)
-                self._content_widget.updateGeometry()
-                self._left_widget.updateGeometry()
-                self.updateGeometry()
-                self.adjustSize()
-        QTimer.singleShot(0, _adj_and_log)
+        self._content_dirty = False
+        self._schedule_content_relayout()
 
     def _on_summary_char_select(self, char):
         """요약뷰 캐릭터 클릭 → 해당 캐릭터+서버 선택."""
@@ -4821,17 +4784,6 @@ class Overlay(QWidget):
                 self._render_tasks()
         if self._summary_win and self._summary_win.isVisible():
             self._summary_win.refresh(self.state, self.active_char)
-
-    # ── Actions ──
-    def _on_toggle(self, tid):
-        sender = self.sender()
-        d = self.state["checks"].setdefault(self.active_char, {})
-        if hasattr(sender, 'count'):
-            d[tid] = sender.count
-        else:
-            d[tid] = not d.get(tid, False)
-        save_state(self.state)
-
 
     def _find_game_hwnd(self):
         """Aion2.exe HWND 탐색. 캐시 우선, 없으면 직접 탐색."""
@@ -4886,7 +4838,9 @@ class Overlay(QWidget):
             _ocr_log(f"상태 반영 완료 — char={char}, base={od['base']}, extra={od['extra']}")
             save_state(self.state)
             # OdePanel 갱신
-            if hasattr(self, "_ode_panel") and self._ode_panel:
+            if getattr(self, "_is_mini", False):
+                self._content_dirty = True
+            elif hasattr(self, "_ode_panel") and self._ode_panel:
                 self._ode_panel.char_key = self.active_char
                 self._ode_panel.refresh()
             # 미니모드 라벨 갱신
@@ -4913,6 +4867,8 @@ class Overlay(QWidget):
             self._srv_combo.setVisible(False)
         else:
             self._render_chars()
+            if self._content_dirty:
+                self._render_tasks()
 
         # 아이콘 + 타이틀: 미니모드 시 숨김
         self._icon_lbl.setVisible(vis)
@@ -4924,12 +4880,15 @@ class Overlay(QWidget):
 
         # 콘텐츠 숨김/표시
         if not vis:
-            if self._summary_win and self._summary_win.isVisible():
+            self._summary_resume_on_restore = bool(self._summary_win and self._summary_win.isVisible())
+            if self._summary_resume_on_restore:
                 self._summary_win.hide()
         else:
-            if self._summary_win:
+            if self._summary_resume_on_restore and self._summary_win:
+                self._summary_win.refresh(self.state, self.active_char)
                 self._summary_win.show()
                 self._snap_summary_win()
+            self._summary_resume_on_restore = False
 
         # 미니모드 라벨
         self._mini_icon_lbl.setVisible(not vis)
@@ -4946,8 +4905,8 @@ class Overlay(QWidget):
             self._upd_mode_btns()
         else:
             self._set_game_polling_active(True)
-        if not vis:  # 최소화 전환 시점에 1회 즉시 감지
-            self._poll_game_window()
+        if not vis:  # 최소화 애니메이션/리레이아웃 직후 1회 감지
+            QTimer.singleShot(150, lambda: self._poll_game_window() if getattr(self, "_is_mini", False) else None)
 
     def _upd_mini_labels(self):
         """미니모드 캐릭터명 + 기본 오드 에너지 갱신."""
@@ -5121,11 +5080,8 @@ class Overlay(QWidget):
         srv = self.state.get("servers", {}).get(char_name, "")
         if srv and srv != self.active_server:
             self.active_server = srv
-        self._render_chars()
-        self._render_tasks()
+        self._content_dirty = True
         self._upd_mini_labels()
-        if self._summary_win:
-            self._summary_win.refresh(self.state, self.active_char)
     def update_all_logic(self):
         """1분마다 실행되는 통합 로직: 자동 초기화, 오드 충전, 라벨 갱신 등"""
         changed = check_auto_reset(self.state)
@@ -5134,19 +5090,16 @@ class Overlay(QWidget):
         
         if changed: 
             save_state(self.state)
-            self._render_tasks()
+            if getattr(self, "_is_mini", False):
+                self._content_dirty = True
+            else:
+                self._render_tasks()
             if self._summary_win and self._summary_win.isVisible():
                 self._summary_win.refresh(self.state, self.active_char)
 
         # 미니모드일 경우 라벨 갱신
         if getattr(self, "_is_mini", False):
             self._upd_mini_labels()
-        
-        # 오드/키나 패널 갱신 (열려있을 때만)
-        if hasattr(self, "_ode_panel") and self._ode_panel:
-            self._ode_panel.refresh()
-        if hasattr(self, "_kina_panel") and self._kina_panel:
-            self._kina_panel.refresh()
 
     # ── Hotkey ──
     def _toggle_visibility(self):
@@ -5165,6 +5118,10 @@ class Overlay(QWidget):
 
     def paintEvent(self,e):
         p=QPainter(self); p.fillRect(self.rect(),QColor(0,0,0,0)); p.end()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        QTimer.singleShot(0, self._bind_screen_change_hook)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
