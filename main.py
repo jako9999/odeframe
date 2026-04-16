@@ -4120,6 +4120,9 @@ class Overlay(QWidget):
         self.active_char = self.state["chars"][0]
         self.active_server = None
         self._drag_pos = None
+        self._drag_origin_cursor = None
+        self._drag_origin_window_pos = None
+        self._drag_axis_lock = None
         self._manager = None
         self._hotkey_seq = None
         self._sync_hotkey_seq = None
@@ -4577,6 +4580,8 @@ class Overlay(QWidget):
     MODE_LEFT_W = BASE_LEFT_W
     MINI_FRAME_PAD = 0
     SUMMARY_GAP = 2
+    SUMMARY_EDGE_SNAP_THRESHOLD = 16
+    OVERLAY_EDGE_SNAP_THRESHOLD = 14
 
     def _toggle_summary(self):
         if self._summary_win and self._summary_win.isVisible():
@@ -4594,9 +4599,9 @@ class Overlay(QWidget):
         self._summary_win.closed.connect(self._on_summary_win_closed)
         self._summary_win.check_toggled.connect(self._on_summary_toggle)
         # show() 전에 위치/높이를 미리 지정 — OS가 show() 시점에 덮어쓰는 것을 방지
-        p = self.pos()
         self._summary_win.snap_height(self.height())
-        self._summary_win.move(p.x() + self.width() + self.SUMMARY_GAP, p.y())
+        target_x, target_y = self._summary_target_pos()
+        self._summary_win.move(target_x, target_y)
         self._summary_win.show()
         self._summary_win.setWindowOpacity(self.state.get("opacity", 100) / 100)
         # show() 후 OS 재배치에 대비해 한 프레임 뒤에 한 번 더 snap
@@ -5010,15 +5015,91 @@ class Overlay(QWidget):
         super().moveEvent(e)
         self._snap_summary_win()
 
+    def _summary_target_pos(self):
+        p = self.pos()
+        target_y = p.y()
+        default_x = p.x() + self.width() + self.SUMMARY_GAP
+
+        if not self._summary_win:
+            return default_x, target_y
+
+        frame = self.frameGeometry()
+        probe = frame.center() if not frame.isNull() else p
+        screen = QApplication.screenAt(probe) or QApplication.screenAt(p) or QApplication.primaryScreen()
+        if not screen:
+            return default_x, target_y
+
+        available = screen.availableGeometry()
+        summary_w = max(1, self._summary_win.width())
+        right_gap = available.right() - frame.right()
+        left_x = p.x() - summary_w - self.SUMMARY_GAP
+        right_x = default_x
+
+        should_open_left = (
+            right_gap <= self.SUMMARY_EDGE_SNAP_THRESHOLD or
+            right_x + summary_w > available.right() + 1
+        )
+        if should_open_left and left_x >= available.left():
+            return left_x, target_y
+
+        return right_x, target_y
+
     def _snap_summary_win(self):
-        """요약창을 메인 창 우측에 snap, 높이를 메인 창에 맞춤."""
+        """요약창을 메인 창 기준 좌/우 적절한 쪽에 snap, 높이를 메인 창에 맞춤."""
         if self._summary_win and self._summary_win.isVisible():
-            p = self.pos()
-            target_x = p.x() + self.width() + self.SUMMARY_GAP
-            target_y = p.y()
             self._summary_win.snap_height(self.height())
+            target_x, target_y = self._summary_target_pos()
             self._summary_win.move(target_x, target_y)
             QTimer.singleShot(0, lambda: self._summary_win.move(target_x, target_y) if self._summary_win else None)
+
+    def _snap_overlay_target_pos(self, target_pos, cursor_pos=None):
+        frame = self.frameGeometry()
+        width = max(1, frame.width() or self.width())
+        height = max(1, frame.height() or self.height())
+        probe = cursor_pos or QPoint(target_pos.x() + width // 2, target_pos.y() + height // 2)
+        screen = QApplication.screenAt(probe) or QApplication.screenAt(target_pos) or QApplication.primaryScreen()
+        if not screen:
+            return target_pos
+
+        available = screen.availableGeometry()
+        threshold = self.OVERLAY_EDGE_SNAP_THRESHOLD
+        x = target_pos.x()
+        y = target_pos.y()
+        right_edge = available.x() + available.width()
+        bottom_edge = available.y() + available.height()
+
+        if abs(x - available.x()) <= threshold:
+            x = available.x()
+        elif abs((x + width) - right_edge) <= threshold:
+            x = right_edge - width
+
+        if abs(y - available.y()) <= threshold:
+            y = available.y()
+        elif abs((y + height) - bottom_edge) <= threshold:
+            y = bottom_edge - height
+
+        return QPoint(x, y)
+
+    def _apply_drag_axis_lock(self, target_pos, cursor_pos, modifiers):
+        if not (modifiers & Qt.KeyboardModifier.ShiftModifier):
+            self._drag_axis_lock = None
+            return target_pos
+
+        if not self._drag_origin_cursor or not self._drag_origin_window_pos:
+            return target_pos
+
+        delta = cursor_pos - self._drag_origin_cursor
+        if self._drag_axis_lock is None:
+            if abs(delta.x()) < 3 and abs(delta.y()) < 3:
+                return target_pos
+            self._drag_axis_lock = "x" if abs(delta.x()) >= abs(delta.y()) else "y"
+
+        locked_pos = QPoint(target_pos)
+        if self._drag_axis_lock == "x":
+            locked_pos.setY(self._drag_origin_window_pos.y())
+        elif self._drag_axis_lock == "y":
+            locked_pos.setX(self._drag_origin_window_pos.x())
+        return locked_pos
 
     def _apply_card_mask(self):
         pass  # outer shell handles painting directly; no mask needed
@@ -5030,14 +5111,24 @@ class Overlay(QWidget):
             in_topbar_y = y <= topbar_h
             in_topbar_x = x <= self.MODE_LEFT_W
             if in_topbar_y and in_topbar_x:
-                self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                cursor_pos = e.globalPosition().toPoint()
+                self._drag_pos = cursor_pos - self.frameGeometry().topLeft()
+                self._drag_origin_cursor = cursor_pos
+                self._drag_origin_window_pos = self.pos()
+                self._drag_axis_lock = None
     def mouseMoveEvent(self, e):
         if self._drag_pos and e.buttons() == Qt.MouseButton.LeftButton:
-            self.move(e.globalPosition().toPoint() - self._drag_pos)
+            cursor_pos = e.globalPosition().toPoint()
+            target_pos = cursor_pos - self._drag_pos
+            target_pos = self._apply_drag_axis_lock(target_pos, cursor_pos, e.modifiers())
+            self.move(self._snap_overlay_target_pos(target_pos, cursor_pos))
     def mouseReleaseEvent(self, e):
         if self._drag_pos:
             p = self.pos(); self.state["overlay_pos"] = [p.x(), p.y()]; save_state(self.state)
         self._drag_pos = None
+        self._drag_origin_cursor = None
+        self._drag_origin_window_pos = None
+        self._drag_axis_lock = None
 
     # ── Timers ──
     def _start_timers(self):
