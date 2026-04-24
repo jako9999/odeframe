@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QPoint, QTimer, QSize, pyqtSignal, pyqtSlot, QPointF, QEvent
 from PyQt6.QtGui import (
     QColor, QPainter, QPen, QBrush, QFont, QFontDatabase,
-    QLinearGradient, QCursor, QKeySequence, QPolygonF, QIcon,
+    QLinearGradient, QCursor, QKeySequence, QPolygonF, QIcon, QFontMetrics,
 )
 
 # ─────────────────────────────────────────────
@@ -609,26 +609,48 @@ RESET_COLOR = {"daily": "#4f9cf9", "weekly": "#c9a84c", "corridor": "#b06fff", "
 RESET_LABEL = {"daily": "일간",    "weekly": "주간",    "corridor": "회랑",    "sanctuary": "성역",   "directive": "지령서"}
 
 DEFAULT_CHAR_TASKS = [
-    {"id": "daily_samyeong",     "name": "사명",              "reset": "daily",    "max": 1, "short_name": "사명"},
     {"id": "corridor_abyss",     "name": "어비스 회랑",       "reset": "corridor", "max": 1, "short_name": "회랑"},
+    {"id": "weekly_akmong",      "name": "악몽",              "reset": "daily",    "max": 14, "short_name": "악몽"},
     {"id": "weekly_awakening",   "name": "각성전",            "reset": "weekly",   "max": 3, "short_name": "각성"},
-    {"id": "weekly_akmong",      "name": "악몽",              "reset": "weekly",   "max": 14},
     {"id": "weekly_abyss_rec",   "name": "심연의 재련",       "reset": "sanctuary","max": 4, "short_name": "심연"},
     {"id": "weekly_erosion",     "name": "침식의 정화소",     "reset": "sanctuary","max": 4, "short_name": "침식"},
 ]
 
 DEFAULT_SERVER_TASKS = [
-    {"id": "server_daily_dungeon",      "name": "일일던전",      "reset": "weekly", "max": 14, "short_name": "일일던전"},
-    {"id": "server_material_transform", "name": "물질변환",      "reset": "weekly", "max": 1,  "short_name": "물질변환"},
-    {"id": "server_sandwind_shop",      "name": "산들바람",      "reset": "weekly", "max": 1,  "short_name": "산들바람"},
+    {"id": "server_daily_samyeong",     "name": "사명",          "reset": "daily",  "max": 1,  "short_name": "사명"},
+    {"id": "server_daily_dungeon",      "name": "일일던전",      "reset": "weekly", "max": 1,  "short_name": "일던"},
+    {"id": "server_material_transform", "name": "물질변환",      "reset": "weekly", "max": 1,  "short_name": "물변"},
+    {"id": "server_sandwind_shop",      "name": "산들바람",      "reset": "weekly", "max": 1,  "short_name": "상점"},
     {"id": "server_altcard_order",      "name": "지령서",        "reset": "directive","max": 1, "short_name": "지령서"},
-    {"id": "server_abyss_order",        "name": "어비스지령서",  "reset": "directive","max": 1, "short_name": "어비스지령서"},
+    {"id": "server_abyss_order",        "name": "어비스지령서",  "reset": "directive","max": 1, "short_name": "어비스"},
 ]
 
-LEGACY_REMOVED_TASK_IDS = {"weekly_raid", "weekly_dungeon", "weekly_ode_shop", "weekly_altcard", "weekly_abyss_order"}
+LEGACY_REMOVED_TASK_IDS = {"daily_samyeong", "weekly_raid", "weekly_dungeon", "weekly_ode_shop", "weekly_altcard", "weekly_abyss_order"}
 
 def _task_default_value(task):
     return False if task.get("max", 1) == 1 else 0
+
+def _is_akmong_task(task_or_id):
+    if isinstance(task_or_id, dict):
+        task_id = task_or_id.get("id")
+    else:
+        task_id = task_or_id
+    return task_id == "weekly_akmong"
+
+def _summary_click_delta(button):
+    if button == Qt.MouseButton.LeftButton:
+        return -1
+    if button == Qt.MouseButton.RightButton:
+        return 1
+    return 0
+
+def _apply_summary_click_value(current, max_val, button):
+    delta = _summary_click_delta(button)
+    if delta == 0:
+        return current
+    if int(max_val or 0) <= 1:
+        return delta > 0
+    return max(0, min(int(max_val or 0), int(current or 0) + delta))
 
 def _server_name_key(server_name):
     return server_name or "공통"
@@ -748,6 +770,9 @@ ODE_AMT       = 15
 ODE_MAX       = 840
 ODE_EXTRA_MAX = 2000
 ODE_COST      = 80
+AKMONG_MAX    = 14
+AKMONG_DAILY_CHARGE = 2
+AKMONG_CHARGE_HOUR = 5
 
 
 KINA_STEPS = {
@@ -774,6 +799,41 @@ def get_kina_tier(kina_id, value):
         if value <= s["max"]: return s
     return steps[-1]
 
+def _ode_default():
+    return {
+        "base": 0,
+        "extra": 0,
+        "recorded_at": None,
+        "akmong_stock": 0,
+        "akmong_recorded_at": None,
+        "memo": "",
+    }
+
+def _now_ms():
+    return int(datetime.now().timestamp() * 1000)
+
+def _clamp_akmong_stock(value):
+    try:
+        value = int(value)
+    except Exception:
+        value = 0
+    return max(0, min(AKMONG_MAX, value))
+
+def count_daily_charges(from_ms, to_ms, hour):
+    if not from_ms or to_ms <= from_ms:
+        return 0
+    count = 0
+    from_dt = datetime.fromtimestamp(from_ms / 1000)
+    to_dt = datetime.fromtimestamp(to_ms / 1000)
+    cur = from_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = to_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    while cur <= end:
+        t = cur.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if from_dt < t <= to_dt:
+            count += 1
+        cur += timedelta(days=1)
+    return count
+
 def count_ode_charges(from_ms, to_ms):
     """from_ms ~ to_ms 사이에 지나간 ODE 충전 정각 횟수."""
     if not from_ms or to_ms <= from_ms: return 0
@@ -792,20 +852,32 @@ def count_ode_charges(from_ms, to_ms):
 
 def apply_charges(state):
     """앱 시작/틱 시 밀린 오드 자동충전을 state에 반영. 변경 시 True 반환."""
-    to_ms = int(datetime.now().timestamp() * 1000)
+    to_ms = _now_ms()
     changed = False
     ode_data = state.setdefault("ode", {})
     for c in state["chars"]:
-        od = ode_data.setdefault(c, {
-            "base":0,"extra":0,"recorded_at":None,"memo":""})
+        od = ode_data.setdefault(c, _ode_default())
+        for k, v in _ode_default().items():
+            od.setdefault(k, v)
         from_ode = od.get("recorded_at")
         n_ode    = count_ode_charges(from_ode, to_ms)
-        if n_ode == 0 and from_ode is not None:
-            continue
         if n_ode > 0:
             od["base"] = min(ODE_MAX, od.get("base", 0) + n_ode * ODE_AMT)
+            changed = True
         od["recorded_at"] = to_ms
-        changed = True
+
+        from_akmong = od.get("akmong_recorded_at")
+        n_akmong = count_daily_charges(from_akmong, to_ms, AKMONG_CHARGE_HOUR)
+        if n_akmong > 0:
+            od["akmong_stock"] = min(
+                AKMONG_MAX,
+                _clamp_akmong_stock(od.get("akmong_stock", 0)) + n_akmong * AKMONG_DAILY_CHARGE,
+            )
+            changed = True
+        od["akmong_recorded_at"] = to_ms
+
+        if from_ode is None or from_akmong is None:
+            changed = True
     return changed
 
 # ─────────────────────────────────────────────
@@ -818,13 +890,7 @@ def default_state():
     checks = {c: {} for c in chars}
     server_checks = {_server_name_key(""): {t["id"]: _task_default_value(t) for t in server_tasks}}
     # 오드 에너지 (캐릭터별)
-    ode = {c: {
-        "base": 0, "extra": 0,
-        "recorded_at": None,   # ms timestamp
-        "akmong_stock": 0,
-        "akmong_recorded_at": None,
-        "memo": "",
-    } for c in chars}
+    ode = {c: _ode_default() for c in chars}
     # 키나 획득률 (서버별)  {"서버명": {"jeongbok": 0, "choweol": 0}}
     kina = {}
     return {
@@ -863,27 +929,10 @@ def load_state():
             data.setdefault("sync_hotkey", "Ctrl+R")
             data.setdefault("ui_scale", 100)
 
-            # ── 기본 컨텐츠 주입 (없는 것만 추가, 순서 보존) ──
-            data["tasks"] = [t for t in data["tasks"] if t.get("id") not in LEGACY_REMOVED_TASK_IDS]
-            data["hidden_tasks"] = [tid for tid in data["hidden_tasks"] if tid not in LEGACY_REMOVED_TASK_IDS]
-
-            existing_ids = {t["id"] for t in data["tasks"]}
-            for dt in DEFAULT_CHAR_TASKS:
-                if dt["id"] not in existing_ids:
-                    data["tasks"].append(dict(dt))
-
-            existing_server_ids = {t["id"] for t in data["server_tasks"]}
-            for dt in DEFAULT_SERVER_TASKS:
-                if dt["id"] not in existing_server_ids:
-                    data["server_tasks"].append(dict(dt))
-            server_default_map = {dt["id"]: dt for dt in DEFAULT_SERVER_TASKS}
-            for t in data["server_tasks"]:
-                if t.get("id") in server_default_map:
-                    default_t = server_default_map[t["id"]]
-                    t["name"] = default_t["name"]
-                    t["reset"] = default_t["reset"]
-                    t["max"] = default_t["max"]
-                    t["short_name"] = default_t["short_name"]
+            # ── 컨텐츠는 고정 정의를 사용한다. 사용자 편집/정렬 상태는 더 이상 반영하지 않음. ──
+            data["hidden_tasks"] = []
+            data["tasks"] = [dict(t) for t in DEFAULT_CHAR_TASKS]
+            data["server_tasks"] = [dict(t) for t in DEFAULT_SERVER_TASKS]
 
             # max 필드 없는 기존 task 보정
             id_to_default = {dt["id"]: dt for dt in DEFAULT_CHAR_TASKS}
@@ -918,31 +967,48 @@ def load_state():
                         t["short_name"] = sn_map[t["id"]]
             tasks = data["tasks"]
             server_tasks = data["server_tasks"]
-            _ode_default = {"base":0,"extra":0,"recorded_at":None,
-                            "memo":""}
+            ode_defaults = _ode_default()
             for c in data["chars"]:
                 data["checks"].setdefault(c, {})
                 data["servers"].setdefault(c, "")
-                data["ode"].setdefault(c, dict(_ode_default))
-                for k, v in _ode_default.items():
+                data["ode"].setdefault(c, dict(ode_defaults))
+                for k, v in ode_defaults.items():
                     data["ode"][c].setdefault(k, v)
                 for t in tasks:
                     data["checks"][c].setdefault(t["id"], _task_default_value(t))
+
+                legacy_akmong = data["checks"][c].get("weekly_akmong", None)
+                if (
+                    legacy_akmong not in (None, False, "")
+                    and not data["ode"][c].get("akmong_stock")
+                    and not data["ode"][c].get("akmong_recorded_at")
+                ):
+                    try:
+                        legacy_used = int(legacy_akmong)
+                    except Exception:
+                        legacy_used = 0
+                    if legacy_used > 0:
+                        data["ode"][c]["akmong_stock"] = max(0, AKMONG_MAX - legacy_used)
+                if data["ode"][c].get("akmong_recorded_at") is None:
+                    data["ode"][c]["akmong_recorded_at"] = data["ode"][c].get("recorded_at")
 
                 # 레거시 서버 통합 데이터 마이그레이션
                 srv = _server_name_key(data["servers"].get(c, ""))
                 data["server_checks"].setdefault(srv, {})
                 legacy_checks = data["checks"][c]
+                legacy_samyeong = legacy_checks.pop("daily_samyeong", None)
                 legacy_daily = legacy_checks.pop("weekly_dungeon", None)
                 legacy_ode = legacy_checks.pop("weekly_ode_shop", None)
                 legacy_alt = legacy_checks.pop("weekly_altcard", None)
                 legacy_abyss_order = legacy_checks.pop("weekly_abyss_order", None)
                 legacy_checks.pop("weekly_raid", None)
 
+                if legacy_samyeong:
+                    data["server_checks"][srv]["server_daily_samyeong"] = True
                 if legacy_daily not in (None, False):
-                    cur = int(data["server_checks"][srv].get("server_daily_dungeon", 0) or 0)
-                    migrated = int(legacy_daily) if isinstance(legacy_daily, int) else 0
-                    data["server_checks"][srv]["server_daily_dungeon"] = max(cur, min(14, migrated))
+                    migrated = int(legacy_daily) if isinstance(legacy_daily, int) else (1 if legacy_daily else 0)
+                    if migrated > 0:
+                        data["server_checks"][srv]["server_daily_dungeon"] = True
                 if legacy_ode:
                     data["server_checks"][srv]["server_material_transform"] = True
                 if legacy_alt:
@@ -953,7 +1019,7 @@ def load_state():
             for srv in set(_server_name_key(v) for v in data.get("servers", {}).values()) | {_server_name_key("")}:
                 data["server_checks"].setdefault(srv, {})
                 for t in server_tasks:
-                    if t["id"] in {"server_sandwind_shop", "server_material_transform", "server_altcard_order", "server_abyss_order"}:
+                    if t.get("max", 1) == 1:
                         cur = data["server_checks"][srv].get(t["id"], _task_default_value(t))
                         data["server_checks"][srv][t["id"]] = bool(cur)
                         continue
@@ -1007,6 +1073,8 @@ def check_auto_reset(state):
         if state.get(state_key) != k:
             for c in state["chars"]:
                 for t in tasks:
+                    if _is_akmong_task(t):
+                        continue
                     if t["reset"] in reset_types:
                         state["checks"][c][t["id"]] = _task_default_value(t)
             for srv, srv_data in state.get("server_checks", {}).items():
@@ -1335,10 +1403,9 @@ class _SummaryView(QWidget):
         return font
 
     def _tasks(self):
-        excl = {"weekly_akmong"}
         return [
             t for t in self._state.get("tasks", [])
-            if t["id"] not in excl and t.get("reset") != "directive"
+            if t.get("reset") != "directive"
         ]
 
     def _servers(self):
@@ -1646,10 +1713,13 @@ class _SummaryView(QWidget):
         self.setCursor(QCursor(Qt.CursorShape.ArrowCursor)); self.update()
 
     def mousePressEvent(self, e):
-        if e.button() != Qt.MouseButton.LeftButton: return
+        button = e.button()
+        if button not in (Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton): return
         hit = self._hit(int(e.position().x()), int(e.position().y()))
         if not hit: return
         if hit[0] == "char":
+            if button != Qt.MouseButton.LeftButton:
+                return
             self.char_selected.emit(hit[1])
         elif hit[0] == "task":
             _, char, ci = hit
@@ -1658,10 +1728,7 @@ class _SummaryView(QWidget):
             cc2  = self._state["checks"].setdefault(char, {})
             raw  = cc2.get(t["id"], 0)
             cnt  = 1 if (raw and _max==1) else (int(raw) if isinstance(raw,int) else 0)
-            if _max == 1:
-                cc2[t["id"]] = not bool(cnt)
-            else:
-                cc2[t["id"]] = 0 if cnt >= _max else cnt + 1
+            cc2[t["id"]] = _apply_summary_click_value(cnt, _max, button)
             self.check_toggled.emit(char, t["id"])
             self.update()
 
@@ -1669,7 +1736,7 @@ class _SummaryView(QWidget):
 class _ServerSummaryView(QWidget):
     check_toggled = pyqtSignal(str, str)
 
-    HDR1_H = 30
+    HDR1_H = 40
     HDR2_H = 0
     ROW_H = 36
     SERVER_W = 90
@@ -1752,15 +1819,31 @@ class _ServerSummaryView(QWidget):
 
         p.fillRect(0, 0, W, self.HDR1_H, QColor(C["surface"]))
         timer_label_w = min(_scaled(24, _ui_scale_factor(self._state)), max(18, self.SERVER_W // 3))
-        p.setFont(self._font("Noto Sans KR", 7, QFont.Weight.Bold))
-        p.setPen(QColor(RESET_COLOR["weekly"]))
-        p.drawText(self.PAD, 0, timer_label_w, self.HDR1_H,
-                   Qt.AlignmentFlag.AlignVCenter, "주간")
-        p.setFont(self._font("Rajdhani", 8))
-        p.setPen(QColor(255, 255, 255, 160))
-        p.drawText(self.PAD + timer_label_w + 2, 0,
-                   self.SERVER_W - self.PAD * 2 - timer_label_w - 2, self.HDR1_H,
-                   Qt.AlignmentFlag.AlignVCenter, fmt_cd(_next_time(5, 2)))
+        timer_rows = []
+        resets = {t.get("reset") for t in tasks}
+        if "daily" in resets:
+            timer_rows.append(("일간", RESET_COLOR["daily"], fmt_cd(_next_time(5))))
+        if resets & {"weekly", "sanctuary", "directive"}:
+            timer_rows.append(("주간", RESET_COLOR["weekly"], fmt_cd(_next_time(5, 2))))
+        if not timer_rows:
+            timer_rows.append(("주간", RESET_COLOR["weekly"], fmt_cd(_next_time(5, 2))))
+
+        slot_h = max(1, self.HDR1_H // len(timer_rows))
+        for idx, (label, color, countdown) in enumerate(timer_rows):
+            sy = idx * slot_h
+            cur_h = self.HDR1_H - sy if idx == len(timer_rows) - 1 else slot_h
+            p.setFont(self._font("Noto Sans KR", 7, QFont.Weight.Bold))
+            p.setPen(QColor(color))
+            p.drawText(self.PAD, sy, timer_label_w, cur_h,
+                       Qt.AlignmentFlag.AlignVCenter, label)
+            p.setFont(self._font("Rajdhani", 8))
+            p.setPen(QColor(255, 255, 255, 160))
+            p.drawText(self.PAD + timer_label_w + 2, sy,
+                       self.SERVER_W - self.PAD * 2 - timer_label_w - 2, cur_h,
+                       Qt.AlignmentFlag.AlignVCenter, countdown)
+            if idx < len(timer_rows) - 1:
+                p.setPen(bd_pen)
+                p.drawLine(0, sy + cur_h, self.SERVER_W, sy + cur_h)
 
         p.setPen(QPen(QColor(C["gold"]), 1))
         p.drawLine(self.SERVER_W, self.HDR1_H - 1, W, self.HDR1_H - 1)
@@ -1772,9 +1855,9 @@ class _ServerSummaryView(QWidget):
                 p.fillRect(txs[i], 0, self.TASK_W, self.HDR1_H, QColor(130, 90, 255, 24))
             font_size = 8 if len(t["name"]) <= 4 else 7
             p.setFont(self._font("Noto Sans KR", font_size, QFont.Weight.Bold))
-            p.setPen(QColor(C["gold"]) if self._hov_col != i else QColor(255, 255, 255, 220))
+            p.setPen(QColor(255, 255, 255, 220) if self._hov_col == i else QColor(RESET_COLOR.get(t.get("reset"), C["text_dim"])))
             p.drawText(txs[i] + 3, 0, self.TASK_W - 6, self.HDR1_H,
-                       Qt.AlignmentFlag.AlignCenter, t["name"])
+                       Qt.AlignmentFlag.AlignCenter, t.get("short_name", t["name"]))
             p.setPen(bd_pen)
             p.drawLine(txs[i], 0, txs[i], self.HDR1_H)
 
@@ -1871,7 +1954,8 @@ class _ServerSummaryView(QWidget):
         self.update()
 
     def mousePressEvent(self, e):
-        if e.button() != Qt.MouseButton.LeftButton:
+        button = e.button()
+        if button not in (Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
             return
         hit = self._hit(int(e.position().x()), int(e.position().y()))
         if not hit or hit[0] != "task":
@@ -1880,13 +1964,492 @@ class _ServerSummaryView(QWidget):
         task = self._tasks()[task_idx]
         data = self._state.setdefault("server_checks", {}).setdefault(srv, {})
         if task.get("max", 1) == 1:
-            data[task["id"]] = not bool(data.get(task["id"], False))
+            cur = bool(data.get(task["id"], False))
         else:
             cur = int(data.get(task["id"], 0) or 0)
-            max_val = int(task.get("max", 0) or 0)
-            data[task["id"]] = 0 if cur >= max_val else cur + 1
+        data[task["id"]] = _apply_summary_click_value(cur, task.get("max", 1), button)
         self.check_toggled.emit(srv, task["id"])
         self.update()
+
+
+def _summary_servers(state):
+    order = []
+    seen = set()
+    for char in state.get("chars", []):
+        srv = _server_name_key(state.get("servers", {}).get(char, ""))
+        if srv not in seen:
+            seen.add(srv)
+            order.append(srv)
+    for srv, data in state.get("server_checks", {}).items():
+        if srv not in seen and any(bool(v) for v in data.values()):
+            seen.add(srv)
+            order.append(srv)
+    if not order:
+        order.append(_server_name_key(""))
+    return order
+
+
+class _ServerFocusedSummaryView(QWidget):
+    char_selected = pyqtSignal(str)
+    check_toggled = pyqtSignal(object, str)
+
+    TOP_ROW_H = 28
+    HDR_H = 28
+    SERVER_ROW_H = 30
+    CHAR_ROW_H = 36
+    LABEL_W = 88
+    SERVER_TASK1_W = 46
+    SERVER_TASKN_W = 56
+    CHAR_TASK1_W = 38
+    CHAR_TASKN_W = 48
+    PAD = 6
+    DOT = 11
+    GAP = 0
+    BD = (255, 255, 255, 18)
+    BDS = (255, 255, 255, 8)
+
+    def __init__(self, state, active_char, selected_server, parent=None):
+        super().__init__(parent)
+        self._state = state
+        self._active_char = active_char
+        self._selected_server = _server_name_key(selected_server)
+        self._hov_row = None
+        self._hov_col = None
+        self._base_metrics = {
+            "TOP_ROW_H": self.TOP_ROW_H,
+            "HDR_H": self.HDR_H,
+            "SERVER_ROW_H": self.SERVER_ROW_H,
+            "CHAR_ROW_H": self.CHAR_ROW_H,
+            "LABEL_W": self.LABEL_W,
+            "SERVER_TASK1_W": self.SERVER_TASK1_W,
+            "SERVER_TASKN_W": self.SERVER_TASKN_W,
+            "CHAR_TASK1_W": self.CHAR_TASK1_W,
+            "CHAR_TASKN_W": self.CHAR_TASKN_W,
+            "PAD": self.PAD,
+            "DOT": self.DOT,
+            "GAP": self.GAP,
+        }
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setStyleSheet("background:transparent;")
+        self.setMouseTracking(True)
+        self._apply_scale_metrics()
+        self._recalc()
+
+    def _apply_scale_metrics(self):
+        scale = _ui_scale_factor(self._state)
+        for name, base in self._base_metrics.items():
+            setattr(self, name, _scaled(base, scale))
+        if scale <= 1.0:
+            self.LABEL_W = max(self.LABEL_W, 98)
+            self.TOP_ROW_H = max(self.TOP_ROW_H, 30)
+            self.PAD = max(self.PAD, 7)
+
+    def _font(self, family, size, weight=QFont.Weight.Normal):
+        font = QFont(family, weight=weight)
+        font.setPointSizeF(_scaled_font_size(size, _ui_scale_factor(self._state)))
+        return font
+
+    def _server_tasks(self):
+        return list(self._state.get("server_tasks", []))
+
+    def _char_tasks(self):
+        return [
+            t for t in self._state.get("tasks", [])
+            if t.get("reset") != "directive"
+        ]
+
+    def _server_chars(self):
+        chars = []
+        for char in self._state.get("chars", []):
+            srv = _server_name_key(self._state.get("servers", {}).get(char, ""))
+            if srv == self._selected_server:
+                chars.append(char)
+        return chars
+
+    def _server_task_w(self, task):
+        return self.SERVER_TASK1_W if task.get("max", 1) == 1 else self.SERVER_TASKN_W
+
+    def _char_task_w(self, task):
+        return self.CHAR_TASK1_W if task.get("max", 1) == 1 else self.CHAR_TASKN_W
+
+    def _char_task_value(self, char, task, char_values=None, ode_data=None):
+        if _is_akmong_task(task):
+            ode_values = ode_data if ode_data is not None else self._state.get("ode", {})
+            return _clamp_akmong_stock(ode_values.get(char, {}).get("akmong_stock", 0))
+        values = char_values if char_values is not None else self._state.get("checks", {}).get(char, {})
+        raw = values.get(task["id"], 0)
+        max_val = task.get("max", 1)
+        return 1 if (raw and max_val == 1) else (int(raw) if isinstance(raw, int) else 0)
+
+    def _server_tasks_x(self):
+        return self._task_layout(self._server_tasks(), self._server_task_w)[0]
+
+    def _char_tasks_x(self):
+        return self._task_layout(self._char_tasks(), self._char_task_w)[0]
+
+    def _task_layout(self, tasks, width_fn, total_width=None):
+        widths = [width_fn(task) for task in tasks]
+        target_w = total_width if total_width is not None else (self.LABEL_W + sum(widths))
+        extra = max(0, target_w - self.LABEL_W - sum(widths))
+        if widths and extra > 0:
+            per = extra // len(widths)
+            rem = extra % len(widths)
+            widths = [w + per + (1 if i < rem else 0) for i, w in enumerate(widths)]
+        xs = []
+        x = self.LABEL_W
+        for w in widths:
+            xs.append(x)
+            x += w
+        return xs, widths
+
+    def _server_total_w(self):
+        return self.LABEL_W + sum(self._server_task_w(t) for t in self._server_tasks())
+
+    def _char_total_w(self):
+        return self.LABEL_W + sum(self._char_task_w(t) for t in self._char_tasks())
+
+    def _total_w(self):
+        return max(self._server_total_w(), self._char_total_w())
+
+    def _char_rows_h(self):
+        rows = len(self._server_chars()) or 1
+        return rows * self.CHAR_ROW_H
+
+    def _layout_y(self):
+        top_row_y = 0
+        server_hdr_y = top_row_y
+        server_row_y = server_hdr_y + self.TOP_ROW_H
+        char_hdr_y = server_row_y + self.SERVER_ROW_H + self.GAP
+        char_rows_y = char_hdr_y + self.HDR_H
+        timer_y = server_row_y
+        return {
+            "top_row_y": top_row_y,
+            "server_hdr_y": server_hdr_y,
+            "server_row_y": server_row_y,
+            "char_hdr_y": char_hdr_y,
+            "char_rows_y": char_rows_y,
+            "timer_y": timer_y,
+        }
+
+    def _total_h(self):
+        ys = self._layout_y()
+        return ys["char_rows_y"] + self._char_rows_h()
+
+    def _recalc(self):
+        self.setFixedSize(self._total_w(), self._total_h())
+
+    def set_server(self, server_name):
+        self._selected_server = _server_name_key(server_name)
+        self._recalc()
+        self.update()
+
+    def refresh(self, state, active_char, selected_server=None):
+        self._state = state
+        self._active_char = active_char
+        if selected_server is not None:
+            self._selected_server = _server_name_key(selected_server)
+        self._apply_scale_metrics()
+        self._recalc()
+        self.update()
+
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        outer_path = _rounded_rect_path(self.width(), self.height(), 10)
+        p.setClipPath(outer_path)
+        p.fillPath(outer_path, QColor(C["bg"]))
+
+        ys = self._layout_y()
+        W = self.width()
+        bd_pen = QPen(QColor(*self.BD), 1)
+        bds_pen = QPen(QColor(*self.BDS), 1)
+
+        server_tasks = self._server_tasks()
+        server_xs, server_ws = self._task_layout(server_tasks, self._server_task_w, self._total_w())
+        char_tasks = self._char_tasks()
+        char_xs, char_ws = self._task_layout(char_tasks, self._char_task_w, self._total_w())
+        server_bg = {
+            "daily": QColor(79, 156, 249, 10),
+            "weekly": QColor(201, 168, 76, 10),
+            "sanctuary": QColor(201, 168, 76, 8),
+            "directive": QColor(201, 168, 76, 8),
+        }
+        char_bg = {
+            "daily": QColor(79, 156, 249, 10),
+            "corridor": QColor(176, 111, 255, 10),
+            "weekly": QColor(201, 168, 76, 10),
+            "sanctuary": QColor(201, 168, 76, 7),
+        }
+        chars = self._server_chars()
+
+        # 상단 행: 좌측 서버 선택 영역 + 우측 서버 공용 헤더
+        p.fillRect(0, ys["top_row_y"], self.LABEL_W, self.TOP_ROW_H, QColor(C["surface"]))
+        timer_items = [
+            ("일간", RESET_COLOR["daily"], fmt_cd(_next_time(5))),
+            ("회랑", RESET_COLOR["corridor"], fmt_cd(_next_time(21, [1, 3, 5]))),
+            ("주간", RESET_COLOR["weekly"], fmt_cd(_next_time(5, 2))),
+        ]
+        scale = _ui_scale_factor(self._state)
+        timer_label_w = max(_scaled(22, scale), min(_scaled(28, scale), max(24, self.LABEL_W // 3)))
+        timer_total_h = self.SERVER_ROW_H + self.HDR_H
+        slot_h = max(1, timer_total_h // len(timer_items))
+        for idx, (label, color, countdown) in enumerate(timer_items):
+            sy = ys["timer_y"] + idx * slot_h
+            cur_h = timer_total_h - idx * slot_h if idx == len(timer_items) - 1 else slot_h
+            if idx > 0:
+                p.setPen(bd_pen)
+                p.drawLine(0, sy, self.LABEL_W, sy)
+            p.setFont(self._font("Noto Sans KR", 7, QFont.Weight.Bold))
+            p.setPen(QColor(color))
+            p.drawText(self.PAD, sy, timer_label_w, cur_h, Qt.AlignmentFlag.AlignVCenter, label)
+            p.setFont(self._font("Rajdhani", 8))
+            p.setPen(QColor(255, 255, 255, 160))
+            p.drawText(self.PAD + timer_label_w + 2, sy, self.LABEL_W - self.PAD * 2 - timer_label_w - 2, cur_h,
+                       Qt.AlignmentFlag.AlignVCenter, countdown)
+
+        p.setPen(bd_pen)
+        p.drawLine(self.LABEL_W, ys["top_row_y"], self.LABEL_W, ys["char_rows_y"])
+        for i, task in enumerate(server_tasks):
+            x = server_xs[i]
+            w = server_ws[i]
+            header_col = QColor(RESET_COLOR.get(task.get("reset"), C["text_dim"]))
+            if self._hov_col == ("server", i):
+                p.fillRect(x, ys["server_hdr_y"], w, self.TOP_ROW_H, QColor(130, 90, 255, 24))
+            else:
+                p.fillRect(x, ys["server_hdr_y"], w, self.TOP_ROW_H, server_bg.get(task.get("reset"), QColor(0, 0, 0, 0)))
+            p.setFont(self._font("Noto Sans KR", 8 if len(task.get("short_name", task["name"])) <= 4 else 7, QFont.Weight.Bold))
+            p.setPen(QColor(255, 255, 255, 220) if self._hov_col == ("server", i) else header_col)
+            p.drawText(x + 3, ys["server_hdr_y"], w - 6, self.TOP_ROW_H,
+                       Qt.AlignmentFlag.AlignCenter, task.get("short_name", task["name"]))
+            p.setPen(bd_pen)
+            p.drawLine(x, ys["server_hdr_y"], x, ys["server_hdr_y"] + self.TOP_ROW_H)
+        p.drawLine(0, ys["server_row_y"] - 1, W, ys["server_row_y"] - 1)
+
+        # 서버 공용 데이터 행
+        row_is_hov = self._hov_row == ("server", self._selected_server)
+        if row_is_hov:
+            p.fillRect(self.LABEL_W, ys["server_row_y"], W - self.LABEL_W, self.SERVER_ROW_H, QColor(130, 90, 255, 16))
+        server_values = self._state.setdefault("server_checks", {}).setdefault(self._selected_server, {})
+        for i, task in enumerate(server_tasks):
+            x = server_xs[i]
+            w = server_ws[i]
+            value = server_values.get(task["id"], _task_default_value(task))
+            if task.get("max", 1) == 1:
+                done = bool(value)
+                p.setFont(self._font("Noto Sans KR", 9, QFont.Weight.Bold if done else QFont.Weight.Normal))
+                p.setPen(QColor(C["gold"] if done else C["text_muted"]))
+                p.drawText(x + 4, ys["server_row_y"], w - 8, self.SERVER_ROW_H,
+                           Qt.AlignmentFlag.AlignCenter, "완료" if done else "미완")
+            else:
+                cnt = int(value or 0)
+                done = cnt >= int(task.get("max", 0) or 0)
+                p.setFont(self._font("Rajdhani", 10, QFont.Weight.Bold))
+                p.setPen(QColor(C["gold"] if done else C["text_muted"]))
+                p.drawText(x, ys["server_row_y"], w, self.SERVER_ROW_H,
+                           Qt.AlignmentFlag.AlignCenter, f"{cnt}/{task['max']}")
+            p.setPen(bd_pen)
+            p.drawLine(x, ys["server_row_y"], x, ys["server_row_y"] + self.SERVER_ROW_H)
+        p.drawLine(self.LABEL_W, ys["server_row_y"] + self.SERVER_ROW_H - 1, W, ys["server_row_y"] + self.SERVER_ROW_H - 1)
+
+        # 캐릭터 헤더
+        p.setPen(bd_pen)
+        p.drawLine(self.LABEL_W, ys["char_hdr_y"], self.LABEL_W, ys["char_hdr_y"] + self.HDR_H)
+        for i, task in enumerate(char_tasks):
+            x = char_xs[i]
+            w = char_ws[i]
+            header_col = QColor(RESET_COLOR.get(task.get("reset"), C["text_dim"]))
+            if self._hov_col == ("char", i):
+                p.fillRect(x, ys["char_hdr_y"], w, self.HDR_H, QColor(130, 90, 255, 24))
+            else:
+                p.fillRect(x, ys["char_hdr_y"], w, self.HDR_H, char_bg.get(task.get("reset"), QColor(0, 0, 0, 0)))
+            p.setFont(self._font("Noto Sans KR", 8, QFont.Weight.Bold))
+            p.setPen(QColor(255, 255, 255, 220) if self._hov_col == ("char", i) else header_col)
+            p.drawText(x, ys["char_hdr_y"], w, self.HDR_H,
+                       Qt.AlignmentFlag.AlignCenter, task.get("short_name", task["name"]))
+            p.setPen(bd_pen)
+            p.drawLine(x, ys["char_hdr_y"], x, ys["char_hdr_y"] + self.HDR_H)
+        p.drawLine(0, ys["char_hdr_y"] + self.HDR_H, W, ys["char_hdr_y"] + self.HDR_H)
+
+        y = ys["char_rows_y"]
+        if not chars:
+            p.setFont(self._font("Noto Sans KR", 9))
+            p.setPen(QColor(C["text_muted"]))
+            p.drawText(self.PAD, y, W - self.PAD * 2, self.CHAR_ROW_H,
+                       Qt.AlignmentFlag.AlignVCenter, "캐릭터 없음")
+            p.setPen(bd_pen)
+            p.drawRect(0, ys["char_hdr_y"], W - 1, self.HDR_H + self.CHAR_ROW_H)
+            p.end()
+            return
+
+        checks = self._state.get("checks", {})
+        ode_d = self._state.get("ode", {})
+        for row_idx, char in enumerate(chars):
+            is_hov = self._hov_row == ("char", char)
+            if row_idx % 2 == 0:
+                p.fillRect(0, y, W, self.CHAR_ROW_H, QColor(255, 255, 255, 8))
+            if is_hov:
+                p.fillRect(0, y, W, self.CHAR_ROW_H, QColor(130, 90, 255, 16))
+
+            is_act = char == self._active_char
+            base_ode = int(ode_d.get(char, {}).get("base", 0) or 0)
+            bar_h = max(4, _scaled(4, scale))
+            gap_h = max(2, _scaled(3, scale))
+            name_h = max(15, _scaled(16, scale))
+            block_h = name_h + gap_h + bar_h
+            block_y = y + max(0, ((self.CHAR_ROW_H - block_h) // 2) - max(1, _scaled(1, scale)))
+            text_y = block_y
+            bar_y = block_y + name_h + gap_h
+            bar_x = self.PAD
+            bar_w = self.LABEL_W - self.PAD * 2
+            p.setFont(self._font("Noto Sans KR", 10, QFont.Weight.Bold))
+            p.setPen(QColor(C["accent"] if is_act else "#ede6ff"))
+            p.drawText(self.PAD, text_y, self.LABEL_W - self.PAD * 2, name_h,
+                       Qt.AlignmentFlag.AlignVCenter, char)
+            ratio = min(base_ode / 840, 1.0)
+            fill_w = int(bar_w * ratio)
+            bar_color = (
+                QColor("#f95f5f") if ratio >= 0.8 else
+                QColor("#f9c74f") if ratio >= 0.4 else
+                QColor("#4dbd74")
+            )
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 255, 255, 18))
+            p.drawRoundedRect(bar_x, bar_y, bar_w, bar_h, 2, 2)
+            if fill_w > 0:
+                p.setBrush(bar_color)
+                p.drawRoundedRect(bar_x, bar_y, fill_w, bar_h, 2, 2)
+            p.setPen(bd_pen)
+            p.drawLine(self.LABEL_W, y, self.LABEL_W, y + self.CHAR_ROW_H)
+
+            char_values = checks.get(char, {})
+            for i, task in enumerate(char_tasks):
+                x = char_xs[i]
+                w = char_ws[i]
+                max_val = task.get("max", 1)
+                cnt = self._char_task_value(char, task, char_values=char_values, ode_data=ode_d)
+                if _is_akmong_task(task):
+                    is_full = cnt >= AKMONG_MAX
+                    tc = QColor(C["red"] if is_full else (C["text"] if cnt > 0 else C["text_muted"]))
+                    p.setFont(self._font("Noto Sans KR", 8, QFont.Weight.Bold if cnt > 0 else QFont.Weight.Medium))
+                    p.setPen(tc)
+                    p.drawText(x, y, w, self.CHAR_ROW_H, Qt.AlignmentFlag.AlignCenter, f"{cnt}장")
+                elif max_val == 1:
+                    done = cnt >= max_val
+                    tc = RESET_COLOR.get(task.get("reset"), C["border2"])
+                    ds = self.DOT
+                    cx = x + (w - ds) // 2
+                    cy = y + (self.CHAR_ROW_H - ds) // 2
+                    p.setPen(QPen(QColor(tc if done else C["border2"]), 1.2))
+                    p.setBrush(QColor(tc) if done else Qt.BrushStyle.NoBrush)
+                    p.drawRoundedRect(cx, cy, ds, ds, 2, 2)
+                else:
+                    done = cnt >= max_val
+                    tc = RESET_COLOR.get(task.get("reset"), C["border2"])
+                    p.setFont(self._font("Rajdhani", 10))
+                    p.setPen(QColor(tc if done else C["text_muted"]))
+                    p.drawText(x, y, w, self.CHAR_ROW_H, Qt.AlignmentFlag.AlignCenter, f"{cnt}/{max_val}")
+                p.setPen(bd_pen)
+                p.drawLine(x, y, x, y + self.CHAR_ROW_H)
+            p.setPen(bd_pen if row_idx == len(chars) - 1 else bds_pen)
+            p.drawLine(0, y + self.CHAR_ROW_H - 1, W, y + self.CHAR_ROW_H - 1)
+            y += self.CHAR_ROW_H
+
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(bd_pen)
+        p.drawPath(outer_path)
+        p.end()
+
+    def _hit(self, mx, my):
+        ys = self._layout_y()
+        if ys["server_row_y"] <= my < ys["server_row_y"] + self.SERVER_ROW_H:
+            server_tasks = self._server_tasks()
+            server_xs, server_ws = self._task_layout(server_tasks, self._server_task_w, self.width())
+            for i, x in enumerate(server_xs):
+                if x <= mx < x + server_ws[i]:
+                    return ("server_task", self._selected_server, i)
+
+        if ys["char_rows_y"] <= my < ys["char_rows_y"] + self._char_rows_h():
+            row_idx = (my - ys["char_rows_y"]) // self.CHAR_ROW_H
+            chars = self._server_chars()
+            if not chars or row_idx < 0 or row_idx >= len(chars):
+                return None
+            char = chars[row_idx]
+            if mx < self.LABEL_W:
+                return ("char", char)
+            char_tasks = self._char_tasks()
+            char_xs, char_ws = self._task_layout(char_tasks, self._char_task_w, self.width())
+            for i, x in enumerate(char_xs):
+                if x <= mx < x + char_ws[i]:
+                    return ("char_task", char, i)
+        return None
+
+    def mouseMoveEvent(self, e):
+        hit = self._hit(int(e.position().x()), int(e.position().y()))
+        new_row = None
+        new_col = None
+        if hit:
+            if hit[0] == "server_task":
+                new_row = ("server", hit[1])
+                new_col = ("server", hit[2])
+            elif hit[0] == "char":
+                new_row = ("char", hit[1])
+            elif hit[0] == "char_task":
+                new_row = ("char", hit[1])
+                new_col = ("char", hit[2])
+        if new_row != self._hov_row or new_col != self._hov_col:
+            self._hov_row = new_row
+            self._hov_col = new_col
+            self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor if hit else Qt.CursorShape.ArrowCursor))
+            self.update()
+
+    def leaveEvent(self, e):
+        self._hov_row = None
+        self._hov_col = None
+        self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        self.update()
+
+    def mousePressEvent(self, e):
+        button = e.button()
+        if button not in (Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
+            return
+        hit = self._hit(int(e.position().x()), int(e.position().y()))
+        if not hit:
+            return
+        if hit[0] == "char":
+            if button != Qt.MouseButton.LeftButton:
+                return
+            self.char_selected.emit(hit[1])
+            return
+        if hit[0] == "server_task":
+            _, srv, idx = hit
+            task = self._server_tasks()[idx]
+            data = self._state.setdefault("server_checks", {}).setdefault(srv, {})
+            if task.get("max", 1) == 1:
+                cur = bool(data.get(task["id"], False))
+            else:
+                cur = int(data.get(task["id"], 0) or 0)
+            data[task["id"]] = _apply_summary_click_value(cur, task.get("max", 1), button)
+            self.check_toggled.emit(srv, task["id"])
+            self.update()
+            return
+        if hit[0] == "char_task":
+            _, char, idx = hit
+            task = self._char_tasks()[idx]
+            if _is_akmong_task(task):
+                od = self._state.setdefault("ode", {}).setdefault(char, _ode_default())
+                od["akmong_stock"] = _clamp_akmong_stock(
+                    _apply_summary_click_value(od.get("akmong_stock", 0), AKMONG_MAX, button)
+                )
+                od["akmong_recorded_at"] = _now_ms()
+            else:
+                max_val = task.get("max", 1)
+                data = self._state.setdefault("checks", {}).setdefault(char, {})
+                raw = data.get(task["id"], 0)
+                cur = 1 if (raw and max_val == 1) else (int(raw) if isinstance(raw, int) else 0)
+                data[task["id"]] = _apply_summary_click_value(cur, max_val, button)
+            self.check_toggled.emit(char, task["id"])
+            self.update()
+            return
 
 
 # ─────────────────────────────────────────────
@@ -1896,13 +2459,17 @@ class _ServerSummaryView(QWidget):
 # ─────────────────────────────────────────────
 # SETTINGS DIALOG
 # ─────────────────────────────────────────────
+def _rounded_rect_path(w, h, radius):
+    from PyQt6.QtGui import QPainterPath
+    path = QPainterPath()
+    path.addRoundedRect(0.5, 0.5, w - 1, h - 1, radius, radius)
+    return path
+
 def _paint_rounded_window(widget, radius=10):
     """FramelessHint QDialog/QWidget의 paintEvent에서 호출.
     배경+클리핑+테두리를 안티앨리어싱으로 그린다."""
-    from PyQt6.QtGui import QPainterPath
     w, h = widget.width(), widget.height()
-    path = QPainterPath()
-    path.addRoundedRect(0.5, 0.5, w - 1, h - 1, radius, radius)
+    path = _rounded_rect_path(w, h, radius)
 
     p = QPainter(widget)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -2774,9 +3341,9 @@ class KinaPanel(QWidget):
         """보상획득: 오드 -80 (해당 캐릭터), 키나 횟수 +1"""
         char_key = self._overlay.active_char if self._overlay and hasattr(self._overlay, "active_char") else None
         if char_key:
-            od = self.state.setdefault("ode", {}).setdefault(char_key, {
-                "base":0,"extra":0,"recorded_at":None,
-                "memo":""})
+            od = self.state.setdefault("ode", {}).setdefault(char_key, _ode_default())
+            for k, v in _ode_default().items():
+                od.setdefault(k, v)
             base  = od.get("base",  0)
             extra = od.get("extra", 0)
             # 오드 차감 (있는 만큼만, 0 이하로 내려가지 않음)
@@ -2901,12 +3468,13 @@ class OdePanel(QWidget):
         self._sec_tmr.start(1000)
 
     def _od(self):
-        return self.state.setdefault("ode", {}).setdefault(self.char_key, {
-            "base":0,"extra":0,"recorded_at":None,
-            "memo":""})
+        od = self.state.setdefault("ode", {}).setdefault(self.char_key, _ode_default())
+        for k, v in _ode_default().items():
+            od.setdefault(k, v)
+        return od
 
     def _build(self):
-        root = QVBoxLayout(self); root.setContentsMargins(8,6,8,6); root.setSpacing(6)
+        root = QVBoxLayout(self); root.setContentsMargins(8,4,8,4); root.setSpacing(4)
 
         # ── 오드 에너지 헤더 ──
         hdr = QHBoxLayout()
@@ -2921,13 +3489,75 @@ class OdePanel(QWidget):
         hdr.addWidget(charge_hint)
         root.addLayout(hdr)
 
-        # 오드 스케줄 바
-        self._ode_sched = _OdeScheduleBar(); root.addWidget(self._ode_sched)
-
         # 기본 / 추가 슬라이더
         root.addWidget(self._make_ode_row("base",  "기본",      ODE_MAX,       "#4dbd74"))
         root.addWidget(self._make_ode_row("extra", "추가(수동)", ODE_EXTRA_MAX, "#ff9040"))
         self.apply_scale_style()
+
+    def _make_akmong_row(self):
+        w = QWidget(); w.setStyleSheet("background:transparent;")
+        top = QHBoxLayout(w); top.setContentsMargins(0, 0, 0, 0); top.setSpacing(0)
+
+        lbl = QLabel("악몽 티켓"); lbl.setFont(QFont("Noto Sans KR", 9, QFont.Weight.Medium))
+        lbl.setStyleSheet(f"color:{C['text']};background:transparent;")
+        top.addWidget(lbl, 1)
+
+        self._akmong_timer_lbl = QLabel("")
+        self._akmong_timer_lbl.setFont(QFont("Rajdhani", 10, QFont.Weight.Bold))
+        self._akmong_timer_lbl.setStyleSheet(f"color:{RESET_COLOR['daily']};background:transparent;")
+        top.addWidget(self._akmong_timer_lbl)
+
+        charge_hint = QLabel(f"+{AKMONG_DAILY_CHARGE}")
+        charge_hint.setFont(QFont("Noto Sans KR", 8))
+        charge_hint.setStyleSheet(f"color:{C['text_muted']};background:transparent;")
+        top.addWidget(charge_hint)
+
+        RIGHT_W = 86
+        right = QWidget(); right.setFixedWidth(RIGHT_W)
+        right.setStyleSheet("background:transparent;")
+        rh = QHBoxLayout(right); rh.setContentsMargins(0, 0, 0, 0); rh.setSpacing(4)
+
+        btn_minus = QPushButton("−"); btn_minus.setFixedSize(22, 22)
+        btn_minus.setStyleSheet(self._btn_style())
+        btn_minus.clicked.connect(lambda: self._adjust_akmong(-1))
+        rh.addWidget(btn_minus)
+
+        num_stack = _OverlayStack(); num_stack.setFixedSize(38, 22)
+
+        self._akmong_val = QLabel("0")
+        self._akmong_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._akmong_val.setFont(QFont("Rajdhani", 11, QFont.Weight.Bold))
+        self._akmong_val.setStyleSheet(f"color:{C['gold']};background:transparent;border-bottom:1px solid {C['gold']}33;")
+        self._akmong_val.setCursor(QCursor(Qt.CursorShape.IBeamCursor))
+        num_stack.add_overlay_child(self._akmong_val)
+
+        self._akmong_edit = QLineEdit("0")
+        self._akmong_edit.setFixedSize(38, 22)
+        self._akmong_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._akmong_edit.setFont(QFont("Rajdhani", 11, QFont.Weight.Bold))
+        self._akmong_edit.setStyleSheet(f"""
+            QLineEdit{{color:{C['gold']};background:{C['surface2']};
+                border:1px solid {C['border2']};border-radius:3px;
+                font-family:'Rajdhani';font-size:11px;padding:0;}}
+            QLineEdit:focus{{border:1px solid {C['border2']};outline:0;}}
+        """)
+        num_stack.add_overlay_child(self._akmong_edit)
+        self._akmong_edit.hide()
+
+        self._akmong_val.mousePressEvent = self._start_akmong_edit
+        self._akmong_edit.returnPressed.connect(self._commit_akmong_edit)
+        self._akmong_edit.editingFinished.connect(self._commit_akmong_edit)
+        _bind_lineedit_commit_on_focus_out(self._akmong_edit, self._commit_akmong_edit)
+        _bind_lineedit_escape(self._akmong_edit, self._cancel_akmong_edit)
+        rh.addWidget(num_stack)
+
+        btn_plus = QPushButton("+"); btn_plus.setFixedSize(22, 22)
+        btn_plus.setStyleSheet(self._btn_style())
+        btn_plus.clicked.connect(lambda: self._adjust_akmong(+1))
+        rh.addWidget(btn_plus)
+
+        top.addWidget(right)
+        return w
 
     def _make_ode_row(self, field, label, max_val, color):
         w = QWidget(); w.setStyleSheet("background:transparent;")
@@ -3054,6 +3684,43 @@ class OdePanel(QWidget):
         getattr(self, f"_val_{field}").setText(str(od[field]))
         self.changed.emit()
 
+    def _set_akmong_stock(self, value):
+        od = self._od()
+        od["akmong_stock"] = _clamp_akmong_stock(value)
+        od["akmong_recorded_at"] = _now_ms()
+
+    def _adjust_akmong(self, delta):
+        self._set_akmong_stock(self._od().get("akmong_stock", 0) + delta)
+        self.refresh()
+        self.changed.emit()
+
+    def _start_akmong_edit(self, _event):
+        self._akmong_edit.setText(str(_clamp_akmong_stock(self._od().get("akmong_stock", 0))))
+        self._akmong_val.hide()
+        self._akmong_edit.show()
+        self._akmong_edit.setFocus()
+        self._akmong_edit.selectAll()
+
+    def _commit_akmong_edit(self):
+        if not self._akmong_edit.isVisible():
+            return
+        try:
+            value = int(self._akmong_edit.text())
+        except ValueError:
+            value = self._od().get("akmong_stock", 0)
+        self._set_akmong_stock(value)
+        self._akmong_edit.hide()
+        self._akmong_val.show()
+        self.refresh()
+        self.changed.emit()
+
+    def _cancel_akmong_edit(self):
+        if not self._akmong_edit.isVisible():
+            return
+        self._akmong_edit.hide()
+        self._akmong_val.show()
+        self.refresh()
+
     def _adjust_ode(self, field, max_val, delta):
         od = self._od(); cur = od.get(field, 0)
         od[field] = max(0, min(max_val, cur + delta))
@@ -3066,7 +3733,8 @@ class OdePanel(QWidget):
     def _upd_timer_labels(self):
         now = datetime.now()
         self._ode_timer_lbl.setText(_next_charge_str(now, ODE_SCHEDULE))
-        self._ode_sched.update_now(now)
+        if hasattr(self, "_akmong_timer_lbl"):
+            self._akmong_timer_lbl.setText(_next_charge_str(now, [AKMONG_CHARGE_HOUR]))
 
     def refresh(self):
         od = self._od()
@@ -3079,6 +3747,8 @@ class OdePanel(QWidget):
             # 슬라이더 (시그널 차단 후 세팅)
             sl = getattr(self, f"_slider_{field}")
             sl.blockSignals(True); sl.setValue(v); sl.blockSignals(False)
+        if hasattr(self, "_akmong_edit") and not self._akmong_edit.isVisible():
+            self._akmong_val.setText(f"{_clamp_akmong_stock(od.get('akmong_stock', 0))}")
         self._upd_timer_labels()
 
 
@@ -3214,16 +3884,10 @@ class ServerSharedPanel(QWidget):
         root.addLayout(hdr)
 
         for task in self.state.get("server_tasks", []):
-            if task["id"] == "server_daily_dungeon":
-                row = self._make_count_row(task)
-            else:
-                row = CheckRow(task, self._server_data().get(task["id"], _task_default_value(task)), show_badge=False)
+            row = CheckRow(task, self._server_data().get(task["id"], _task_default_value(task)), show_badge=False)
             row.toggled.connect(self._on_toggle)
             self._rows[task["id"]] = row
             root.addWidget(row)
-
-    def _make_count_row(self, task):
-        return _CountAdjustRow(task, self._server_data().get(task["id"], 0))
 
     def _on_toggle(self, tid):
         sender = self.sender()
@@ -3245,8 +3909,6 @@ class ServerSharedPanel(QWidget):
             if hasattr(row, "_refresh"):
                 row._refresh()
                 row.update()
-            elif hasattr(row, "_value_label"):
-                row._value_label.setText(f"{row.count}/{task.get('max', 14)}")
 
 
 class _SelectButton(QPushButton):
@@ -3434,6 +4096,60 @@ class _SelectButton(QPushButton):
 
 
 
+class _CellSelectButton(_SelectButton):
+    def __init__(self, color, min_chars=6, parent=None):
+        self._hovering = False
+        super().__init__(color, min_chars=min_chars, parent=parent)
+
+    def _button_style(self):
+        return f"""
+            QPushButton {{
+                background:transparent;
+                border:none;
+                border-radius:0px;
+                padding:0;
+            }}
+            QPushButton:hover {{
+                background:transparent;
+            }}
+            QPushButton:pressed {{
+                background:transparent;
+            }}
+        """
+
+    def _sync_label_styles(self):
+        if not self.isEnabled():
+            text_color = C["text_muted"]
+            arrow_color = C["text_muted"]
+        elif self._hovering:
+            text_color = C["accent"]
+            arrow_color = C["text"]
+        else:
+            text_color = C["text"]
+            arrow_color = C["accent"]
+        self._text_label.setStyleSheet(f"color:{text_color};background:transparent;border:none;")
+        self._arrow.setStyleSheet(f"color:{arrow_color};background:transparent;border:none;")
+
+    def _layout_contents(self):
+        left_pad = max(8, self.height() // 3)
+        right_pad = max(8, self.height() // 3)
+        arrow_w = max(14, self.fontMetrics().horizontalAdvance("▾") + max(3, self.height() // 7))
+        self._arrow.setGeometry(self.width() - arrow_w - right_pad, 0, arrow_w, self.height())
+        text_right = self._arrow.x() - 2
+        self._text_label.setGeometry(left_pad, 0, max(10, text_right - left_pad), self.height())
+        self._sync_text_label()
+
+    def enterEvent(self, event):
+        self._hovering = True
+        self._sync_label_styles()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovering = False
+        self._sync_label_styles()
+        super().leaveEvent(event)
+
+
 def _next_charge_str(now, schedule):
     cur_min = now.hour * 60 + now.minute
     nxt = next((h for h in schedule if h * 60 > cur_min), schedule[0] + 24)
@@ -3604,7 +4320,7 @@ class _SummaryWindow(QWidget):
     check_toggled = pyqtSignal(object, str)
 
     RADIUS = 10
-    MODE_BAR_H = 34
+    TOP_BAR_H = 0
 
     def __init__(self, state, active_char, parent=None):
         super().__init__(parent)
@@ -3616,25 +4332,19 @@ class _SummaryWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._state = state
         self._active_char = active_char
-        self._mode = "char"
+        self._selected_server = _server_name_key(state.get("servers", {}).get(active_char, ""))
         self._apply_scale_metrics()
 
         rl = QVBoxLayout(self)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(0)
 
-        self._char_view = _SummaryView(state, active_char)
-        self._char_view.char_selected.connect(self.char_selected)
-        self._char_view.check_toggled.connect(self._emit_check_toggled)
+        self._view = _ServerFocusedSummaryView(state, active_char, self._selected_server)
+        self._view.char_selected.connect(self.char_selected)
+        self._view.check_toggled.connect(self._emit_check_toggled)
+        self._server_picker = _CellSelectButton(C["accent"], min_chars=4, parent=self._view)
+        self._server_picker.changed.connect(self._on_server_changed)
 
-        self._server_view = _ServerSummaryView(state, active_char)
-        self._server_view.check_toggled.connect(self._emit_check_toggled)
-
-        self._active_view = self._char_view
-        self._header_h = self._mode_bar_h + self._active_view.HDR1_H + self._active_view.HDR2_H
-
-        # 스크롤 영역 — _sv 전체(헤더+바디)를 담되,
-        # 레이아웃 상단 마진을 헤더 높이만큼 줘서 헤더 영역은 스크롤 밖에 위치하게 함
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(False)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -3649,116 +4359,84 @@ class _SummaryWindow(QWidget):
         """)
         self._scroll.viewport().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._scroll.viewport().setStyleSheet("border:none; background:transparent;")
-        self._scroll.setWidget(self._active_view)
+        self._scroll.setWidget(self._view)
 
-        rl.setContentsMargins(0, self._header_h, 0, 0)
         rl.addWidget(self._scroll)
 
-        self._btn_char = QPushButton("캐릭터", self)
-        self._btn_server = QPushButton("서버", self)
-        for btn, mode in ((self._btn_char, "char"), (self._btn_server, "server")):
-            btn.setCheckable(True)
-            btn.clicked.connect(lambda checked=False, m=mode: self._set_mode(m))
-
-        self._set_mode("char", initial=True)
+        self._refresh_server_picker(sync_to_active=True)
+        self.setFixedWidth(self._view._total_w())
         self.snap_height()
+        self._layout_server_picker()
 
     def _apply_scale_metrics(self):
-        self._mode_bar_h = _scaled(self.MODE_BAR_H, _ui_scale_factor(self._state))
+        self._top_bar_h = _scaled(self.TOP_BAR_H, _ui_scale_factor(self._state))
 
     def paintEvent(self, e):
-        from PyQt6.QtGui import QPainterPath
         _paint_rounded_window(self, radius=self.RADIUS)
 
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        clip = QPainterPath()
-        clip.addRoundedRect(0.5, 0.5, self.width() - 1, self.height() - 1, self.RADIUS, self.RADIUS)
-        p.setClipPath(clip)
-
-        W        = self.width()
-        hdr_h    = self._header_h
-
-        p.fillRect(0, 0, W, hdr_h, QColor(C["surface"]))
-        p.fillRect(0, self._mode_bar_h - 1, W, 1, QColor(C["border"]))
-        p.save()
-        p.translate(0, self._mode_bar_h)
-        self._active_view._paint_header(p)
-        p.restore()
-
-        p.end()
-
     def snap_height(self, _unused=None):
-        """메인 창 높이에 고정하지 않고 표 내용에 맞춰 높이를 조정한다."""
-        self._header_h = self._mode_bar_h + self._active_view.HDR1_H + self._active_view.HDR2_H
-        self.layout().setContentsMargins(0, self._header_h, 0, 0)
-
+        self.layout().setContentsMargins(0, 0, 0, 0)
         screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()
         available_h = screen.availableGeometry().height() if screen else 900
-        max_body_h = max(140, available_h - self._header_h - 32)
-        body_h = min(self._active_view._total_h(), max_body_h)
+        max_body_h = max(140, available_h - 32)
+        body_h = min(self._view._total_h(), max_body_h)
 
         self._scroll.setFixedHeight(body_h)
-        self.setFixedHeight(self._header_h + body_h)
+        self.setFixedHeight(body_h)
         _apply_rounded_mask(self, self.RADIUS)
 
     def refresh(self, state, active_char):
         self._state = state
         self._active_char = active_char
         self._apply_scale_metrics()
-        self._char_view.refresh(state, active_char)
-        self._server_view.refresh(state, active_char)
-        self.setFixedWidth(self._active_view._total_w())
-        self._btn_char.setStyleSheet(self._mode_btn_style(self._mode == "char"))
-        self._btn_server.setStyleSheet(self._mode_btn_style(self._mode == "server"))
+        self._view.refresh(state, active_char, self._selected_server)
+        self._refresh_server_picker(sync_to_active=False)
+        self.setFixedWidth(self._view._total_w())
         self.snap_height()
-        self._layout_mode_buttons()
+        self._layout_server_picker()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
         _apply_rounded_mask(self, self.RADIUS)
-        self._layout_mode_buttons()
+        self._layout_server_picker()
 
-    def _mode_btn_style(self, active):
+    def _available_servers(self):
+        return _summary_servers(self._state)
+
+    def _refresh_server_picker(self, sync_to_active):
+        servers = self._available_servers()
+        active_server = _server_name_key(self._state.get("servers", {}).get(self._active_char, ""))
+        if sync_to_active or self._selected_server not in servers:
+            self._selected_server = active_server if active_server in servers else (servers[0] if servers else _server_name_key(""))
+        items = [(srv, srv) for srv in servers]
+        self._server_picker.set_items(items)
+        self._server_picker.set_current_data(self._selected_server, emit=False)
+        picker_font = QFont("Noto Sans KR")
+        picker_font.setPointSizeF(max(1.0, _scaled_font_size(9, _ui_scale_factor(self._state))))
+        self._server_picker.set_popup_font(picker_font)
+        self._server_picker.setVisible(bool(items))
+
+    def _layout_server_picker(self):
+        if not hasattr(self, "_server_picker"):
+            return
         scale = _ui_scale_factor(self._state)
-        radius = _scaled(5, scale)
-        font_size = _scaled_font_size(10, scale)
-        if active:
-            return f"""
-                QPushButton{{background:{C['gold']}22;color:{C['gold']};border:1px solid {C['gold']}88;
-                    border-radius:{radius}px;font-family:'Noto Sans KR';font-size:{font_size}px;font-weight:500;}}
-                QPushButton:hover{{background:{C['gold']}33;border-color:{C['gold']};}}
-            """
-        return f"""
-            QPushButton{{background:{C['surface2']};color:{C['text_muted']};border:1px solid {C['border']};
-                border-radius:{radius}px;font-family:'Noto Sans KR';font-size:{font_size}px;}}
-            QPushButton:hover{{border-color:{C['border2']};color:{C['text']};}}
-        """
+        row_h = max(_scaled(24, scale), getattr(self._view, "TOP_ROW_H", _scaled(28, scale)))
+        inset = max(2, _scaled(2, scale))
+        picker_h = max(_scaled(20, scale), row_h - inset * 2)
+        picker_w = max(_scaled(56, scale), self._view.LABEL_W - inset * 2)
+        x = inset
+        y = max(1, (row_h - picker_h) // 2)
+        self._server_picker.setGeometry(x, y, picker_w, picker_h)
+        self._server_picker.raise_()
 
-    def _layout_mode_buttons(self):
-        scale = _ui_scale_factor(self._state)
-        pad = _scaled(8, scale)
-        gap = _scaled(6, scale)
-        btn_w = _scaled(68, scale)
-        btn_h = _scaled(24, scale)
-        y = max(0, (self._mode_bar_h - btn_h) // 2)
-        self._btn_char.setGeometry(pad, y, btn_w, btn_h)
-        self._btn_server.setGeometry(pad + btn_w + gap, y, btn_w, btn_h)
-
-    def _set_mode(self, mode, initial=False):
-        self._mode = mode
-        self._active_view = self._char_view if mode == "char" else self._server_view
-        self._scroll.takeWidget()
-        self._scroll.setWidget(self._active_view)
-        self._btn_char.setChecked(mode == "char")
-        self._btn_server.setChecked(mode == "server")
-        self._btn_char.setStyleSheet(self._mode_btn_style(mode == "char"))
-        self._btn_server.setStyleSheet(self._mode_btn_style(mode == "server"))
-        self.setFixedWidth(self._active_view._total_w())
+    def _on_server_changed(self, server_name):
+        self._selected_server = _server_name_key(server_name)
+        self._view.set_server(self._selected_server)
+        self.setFixedWidth(self._view._total_w())
         self.snap_height()
-        self._layout_mode_buttons()
-        if not initial:
-            self.update()
+        self._refresh_server_picker(sync_to_active=False)
+        self._layout_server_picker()
+        self.update()
 
     def _emit_check_toggled(self, key, tid):
         self.check_toggled.emit(key, tid)
@@ -3830,8 +4508,7 @@ class ManagerWindow(QWidget):
         body = QWidget(); body.setStyleSheet(f"background:{C['bg']};")
         bv = QVBoxLayout(body); bv.setContentsMargins(10, 10, 10, 10); bv.setSpacing(0)
         tabs = QTabWidget()
-        tabs.addTab(self._char_tab(),    "캐릭터 관리")
-        tabs.addTab(self._content_tab(), "컨텐츠 설정")
+        tabs.addTab(self._char_tab(), "캐릭터 관리")
         bv.addWidget(tabs, 1)
         root.addWidget(body, 1)
 
@@ -3984,7 +4661,7 @@ class ManagerWindow(QWidget):
         sh.addWidget(shared_info, 1)
         v.addWidget(shared_strip)
 
-        # ── 2열 레이아웃: 좌(일간+회랑) | 우(주간) ──
+        # ── 2열 레이아웃: 좌(개인 일간/회랑) | 우(주간) ──
         cols = QHBoxLayout(); cols.setSpacing(8)
 
         def _make_section(reset_type):
@@ -4022,10 +4699,17 @@ class ManagerWindow(QWidget):
 
         left_col = QWidget(); left_col.setStyleSheet("background:transparent;")
         lv = QVBoxLayout(left_col); lv.setContentsMargins(0,0,0,0); lv.setSpacing(8)
-        daily_col,    self._task_cont_daily    = _make_section("daily")
-        corridor_col, self._task_cont_corridor = _make_section("corridor")
-        lv.addWidget(daily_col, 1)
-        lv.addWidget(corridor_col, 1)
+        self._task_cont_daily = None
+        self._task_cont_corridor = None
+        task_reset_types = {t.get("reset") for t in self.state.get("tasks", [])}
+        if "daily" in task_reset_types:
+            daily_col, self._task_cont_daily = _make_section("daily")
+            lv.addWidget(daily_col, 1)
+        if "corridor" in task_reset_types:
+            corridor_col, self._task_cont_corridor = _make_section("corridor")
+            lv.addWidget(corridor_col, 1)
+        if lv.count() == 0:
+            lv.addStretch(1)
 
         # 우측: 주간 + 성역 + 지령서 통합 컨테이너
         right_col = QWidget(); right_col.setStyleSheet("background:transparent;")
@@ -4063,8 +4747,9 @@ class ManagerWindow(QWidget):
 
     def _refresh_content_tab(self):
         for attr in ("_task_cont_daily", "_task_cont_corridor", "_task_cont_weekly"):
-            if hasattr(self, attr):
-                getattr(self, attr).rebuild(self.state)
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                widget.rebuild(self.state)
 
     def _on_task_reorder(self):
         save_state(self.state)
@@ -4746,7 +5431,7 @@ class Overlay(QWidget):
 
         if self._ode_panel is None:
             self._ode_panel = OdePanel(self.state, self.active_char)
-            self._ode_panel.changed.connect(lambda: save_state(self.state))
+            self._ode_panel.changed.connect(self._on_ode_panel_changed)
             self._p0v.addWidget(self._ode_panel)
 
     def _schedule_content_relayout(self):
@@ -4768,6 +5453,13 @@ class Overlay(QWidget):
         self._ode_panel.refresh()
         self._content_dirty = False
         self._schedule_content_relayout()
+
+    def _on_ode_panel_changed(self):
+        save_state(self.state)
+        if self._summary_win and self._summary_win.isVisible():
+            self._summary_win.refresh(self.state, self.active_char)
+        if getattr(self, "_is_mini", False):
+            self._upd_mini_labels()
 
     def _on_summary_char_select(self, char):
         """요약뷰 캐릭터 클릭 → 해당 캐릭터+서버 선택."""
@@ -4834,12 +5526,12 @@ class Overlay(QWidget):
         _ocr_log(f"UI 반영 수신 — char={char}, raw={result}, parsed={parsed}")
         if parsed:
             base, extra, _ = parsed
-            od = self.state.setdefault("ode", {}).setdefault(char, {
-                "base": 0, "extra": 0, "recorded_at": None, "memo": ""
-            })
+            od = self.state.setdefault("ode", {}).setdefault(char, _ode_default())
+            for k, v in _ode_default().items():
+                od.setdefault(k, v)
             od["base"]  = max(0, min(ODE_MAX,       base))
             od["extra"] = max(0, min(ODE_EXTRA_MAX, extra))
-            od["recorded_at"] = int(datetime.now().timestamp() * 1000)
+            od["recorded_at"] = _now_ms()
             _ocr_log(f"상태 반영 완료 — char={char}, base={od['base']}, extra={od['extra']}")
             save_state(self.state)
             # OdePanel 갱신

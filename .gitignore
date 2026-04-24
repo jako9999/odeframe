@@ -13,6 +13,12 @@ myenv/
 bin/
 build/
 dist/
+tools/
+
+build.bat
+run.bat
+odeframe.spec
+update.log
 
 ocr_debug_topbar.png
 ocr_debug_roi.png
