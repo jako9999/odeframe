@@ -3,7 +3,7 @@ AION2 컨텐츠 트래커 오버레이
 - 게임 최상단 오버레이
 - 설정창 (단축키 · 투명도 · 최상단 고정)
 - 전체화면 관리창 (캐릭터 · 서버 · 컨텐츠 숨김)
-- 자동 초기화 (일간 05:00 / 주간 수요 05:00 / 회랑 화목토 21:00)
+- 자동 초기화 (일간 05:00 / 주간 수요 05:00 / 회랑 수토 22:00)
 """
 
 
@@ -607,6 +607,8 @@ C = {
 
 RESET_COLOR = {"daily": "#4f9cf9", "weekly": "#c9a84c", "corridor": "#b06fff", "sanctuary": "#c9a84c", "directive": "#c9a84c"}
 RESET_LABEL = {"daily": "일간",    "weekly": "주간",    "corridor": "회랑",    "sanctuary": "성역",   "directive": "지령서"}
+CORRIDOR_RESET_WEEKDAYS = (2, 5)  # 수/토
+CORRIDOR_RESET_HOUR = 22
 
 DEFAULT_CHAR_TASKS = [
     {"id": "corridor_abyss",     "name": "어비스 회랑",       "reset": "corridor", "max": 1, "short_name": "회랑"},
@@ -1055,8 +1057,8 @@ def _key_corridor():
     now = datetime.now()
     for offset in range(8):
         d = now - timedelta(days=offset)
-        if d.weekday() in [1,3,5]:
-            t = d.replace(hour=21,minute=0,second=0,microsecond=0)
+        if d.weekday() in CORRIDOR_RESET_WEEKDAYS:
+            t = d.replace(hour=CORRIDOR_RESET_HOUR,minute=0,second=0,microsecond=0)
             if now >= t: return t.strftime("%Y-%m-%d-%H")
     return "never"
 
@@ -1459,7 +1461,7 @@ class _SummaryView(QWidget):
 
         TIMERS = [
             ("일간", RESET_COLOR["daily"],    fmt_cd(_next_time(5))),
-            ("회랑", RESET_COLOR["corridor"], fmt_cd(_next_time(21, [1, 3, 5]))),
+            ("회랑", RESET_COLOR["corridor"], fmt_cd(_next_time(CORRIDOR_RESET_HOUR, CORRIDOR_RESET_WEEKDAYS))),
             ("주간", RESET_COLOR["weekly"],   fmt_cd(_next_time(5, 2))),
         ]
         for si, (label, col, cd) in enumerate(TIMERS):
@@ -2186,7 +2188,7 @@ class _ServerFocusedSummaryView(QWidget):
         p.fillRect(0, ys["top_row_y"], self.LABEL_W, self.TOP_ROW_H, QColor(C["surface"]))
         timer_items = [
             ("일간", RESET_COLOR["daily"], fmt_cd(_next_time(5))),
-            ("회랑", RESET_COLOR["corridor"], fmt_cd(_next_time(21, [1, 3, 5]))),
+            ("회랑", RESET_COLOR["corridor"], fmt_cd(_next_time(CORRIDOR_RESET_HOUR, CORRIDOR_RESET_WEEKDAYS))),
             ("주간", RESET_COLOR["weekly"], fmt_cd(_next_time(5, 2))),
         ]
         scale = _ui_scale_factor(self._state)
