@@ -1101,7 +1101,7 @@ def _next_time(hour, weekday=None):
         if now >= t: t += timedelta(days=1)
         return t
     else:
-        if isinstance(weekday, list):
+        if isinstance(weekday, (list, tuple, set)):
             candidates = []
             for wd in weekday:
                 for offset in range(8):
